@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Episodes</title>
+</head>
+<body>
+    <h2>Episode List</h2>
+
+    <form method="get" action="/watch">
+        <input type="hidden" name="url" id="episodeUrl">
+        <label>Enter Episode Number: </label>
+        <input type="number" id="epNum" min="1">
+        <button type="button" onclick="pickEpisode()">Watch</button>
+    </form>
+
+    <h3>All Episodes</h3>
+    <ul>
+        {% for ep in episodes %}
+        <li>
+            <a href="/watch?url={{ ep.link }}" target="_blank">
+                Episode {{ ep.num }} — {{ ep.title }}
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <script>
+        const episodes = {{ episodes|tojson }};
+        function pickEpisode(){
+            let num = document.getElementById("epNum").value;
+            let ep = episodes.find(e => e.num == num);
+            if(ep){
+                window.location.href = "/watch?url=" + ep.link;
+            } else {
+                alert("Episode not found!");
+            }
+        }
+    </script>
+</body>
+</html>
