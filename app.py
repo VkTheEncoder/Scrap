@@ -2,6 +2,7 @@ import base64
 from flask import Flask, render_template, request
 import requests
 from bs4 import BeautifulSoup
+import re
 
 app = Flask(__name__)
 
@@ -69,17 +70,20 @@ def episodes():
 
     return render_template("episodes.html", episodes=episodes)
 
+import re
+
 @app.route("/watch")
 def watch():
     token = request.args.get("u", "")
     url = b64d(token) if token else ""
     video_options = []
+    subs = []
 
     if url:
         r = requests.get(url, headers=HEADERS, timeout=30)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Decode every <option value="..."> under select.mirror
+        # Decode every <option>
         for option in soup.select("select.mirror option"):
             label = option.get_text(strip=True)
             encoded = option.get("value", "")
@@ -92,10 +96,21 @@ def watch():
                 src = iframe.get("src") if iframe else None
                 if src:
                     video_options.append({"label": label, "src": src})
+
+                    # fetch iframe page to look for subtitles (.vtt or .srt)
+                    try:
+                        iframe_resp = requests.get(src, headers=HEADERS, timeout=20).text
+                        # regex all .vtt or .srt urls
+                        found_subs = re.findall(r'https?://[^\s"\']+\.(?:vtt|srt)', iframe_resp)
+                        for s in found_subs:
+                            subs.append(s)
+                    except:
+                        pass
             except Exception:
                 continue
 
-    return render_template("watch.html", video_options=video_options)
+    return render_template("watch.html", video_options=video_options, subs=subs)
+
 
 if __name__ == "__main__":
     # local run
