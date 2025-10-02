@@ -2,7 +2,7 @@ import base64
 from flask import Flask, render_template, request
 import requests
 from bs4 import BeautifulSoup
-import re
+import re, json
 
 app = Flask(__name__)
 
@@ -83,12 +83,12 @@ def watch():
         r = requests.get(url, headers=HEADERS, timeout=30)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Decode every <option>
         for option in soup.select("select.mirror option"):
             label = option.get_text(strip=True)
             encoded = option.get("value", "")
-            if not encoded:
+            if not encoded: 
                 continue
+
             try:
                 decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
                 inner = BeautifulSoup(decoded_html, "html.parser")
@@ -97,15 +97,18 @@ def watch():
                 if src:
                     video_options.append({"label": label, "src": src})
 
-                    # fetch iframe page to look for subtitles (.vtt or .srt)
-                    try:
-                        iframe_resp = requests.get(src, headers=HEADERS, timeout=20).text
-                        # regex all .vtt or .srt urls
-                        found_subs = re.findall(r'https?://[^\s"\']+\.(?:vtt|srt)', iframe_resp)
-                        for s in found_subs:
-                            subs.append(s)
-                    except:
-                        pass
+                    # --- Subtitles: special handling for dailymotion ---
+                    if "dailymotion.com/embed/video/" in src:
+                        vid_id = src.split("/embed/video/")[-1].split("?")[0]
+                        meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+                        meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+                        if "subtitles" in meta:
+                            for lang, info in meta["subtitles"].items():
+                                subs.append({
+                                    "lang": lang,
+                                    "url": info["url"]
+                                })
+
             except Exception:
                 continue
 
