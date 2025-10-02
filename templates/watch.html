@@ -25,12 +25,11 @@
 
     <div id="player"><p>Choose a server to preview the video and copy its link.</p></div>
 
-    <!-- 🔽 New subtitle section -->
     {% if subs %}
       <h3>Available Subtitles</h3>
       <ul>
         {% for s in subs %}
-          <li><a href="{{ s }}" download>Download {{ s.split('/')[-1] }}</a></li>
+          <li><a href="{{ s.url }}" download>Download ({{ s.lang }})</a></li>
         {% endfor %}
       </ul>
     {% endif %}
