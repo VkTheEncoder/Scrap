@@ -123,18 +123,18 @@ def extract_subs_from_m3u8(m3u8_url):
     subs = []
     try:
         r = requests.get(m3u8_url, timeout=20)
-        playlist = m3u8.loads(r.text)
-
-        for media in playlist.media:
-            if media.type == "SUBTITLES":
+        for line in r.text.splitlines():
+            line = line.strip()
+            if line.startswith("http") and line.endswith(".vtt") or ".vtt?" in line:
                 subs.append({
-                    "lang": media.language or "unknown",
-                    "name": media.name or media.language,
-                    "url": media.uri
+                    "lang": "Unknown",
+                    "name": "Subtitle",
+                    "url": line
                 })
     except Exception as e:
         print("Error extracting subs from m3u8:", e)
     return subs
+
 
 def download_full_vtt(m3u8_url):
     base_url = m3u8_url.rsplit("/", 1)[0]
