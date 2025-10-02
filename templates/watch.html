@@ -32,6 +32,8 @@
           <li><a href="{{ s.url }}" download>Download ({{ s.lang }})</a></li>
         {% endfor %}
       </ul>
+    {% else %}
+      <p>No subtitle tracks found for this server.</p>
     {% endif %}
 
     <div style="margin-top:12px;"><a href="javascript:history.back()">← Back</a></div>
