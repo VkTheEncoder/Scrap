@@ -96,18 +96,9 @@ def watch():
 
                 if src:
                     video_options.append({"label": label, "src": src})
-
-                    # 👉 subtitle extraction for Dailymotion
-                    if "dailymotion.com/embed/video/" in src:
-                        vid_id = src.split("/embed/video/")[-1].split("?")[0]
-                        meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-                        try:
-                            meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
-                            if "subtitles" in meta:
-                                for lang, info in meta["subtitles"].items():
-                                    subs.append({"lang": lang, "url": info["url"]})
-                        except Exception as e:
-                            print("Subtitle fetch failed:", e)
+                
+                    # use helper to get subs
+                    subs.extend(get_dailymotion_subs(src))
 
             except Exception:
                 continue
