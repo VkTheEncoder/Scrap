@@ -33,6 +33,30 @@ def home():
     return render_template("index.html", results=results)
 
 
+@app.route("/episodes")
+def episodes():
+    url = request.args.get("url")
+    episodes = []
+
+    if url:
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Grab all episode list items
+        for li in soup.select(".eplister ul li"):
+            num = li.select_one(".epl-num").get_text(strip=True) if li.select_one(".epl-num") else "?"
+            title = li.select_one(".epl-title").get_text(strip=True) if li.select_one(".epl-title") else ""
+            link = li.select_one("a")["href"] if li.select_one("a") else "#"
+
+            episodes.append({
+                "num": num,
+                "title": title,
+                "link": link
+            })
+
+    return render_template("episodes.html", episodes=episodes, url=url)
+
+
 @app.route("/watch")
 def watch():
     url = request.args.get("url")
