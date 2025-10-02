@@ -155,49 +155,45 @@ def download_full_vtt(m3u8_url):
     return "\n\n".join(vtt_content)
 
 def vtt_to_srt(vtt_text: str) -> str:
-    srt = []
+    srt_lines = []
     counter = 1
+
     for block in vtt_text.strip().split("\n\n"):
-        lines = block.splitlines()
-        if not lines:
+        lines = block.strip().splitlines()
+        if not lines or lines[0].startswith("WEBVTT"):
             continue
-        # Find timestamp line
-        time_line = None
-        for i, line in enumerate(lines):
-            if "-->" in line:
-                time_line = line.replace(".", ",")
-                text_lines = lines[i+1:]
-                break
-        if not time_line:
-            continue
-        srt.append(f"{counter}\n{time_line}\n" + "\n".join(text_lines))
+
+        # detect timestamp line
+        if "-->" in lines[0]:
+            time_line = lines[0].replace(".", ",")
+            text_lines = lines[1:]
+        else:
+            time_line = lines[1].replace(".", ",")
+            text_lines = lines[2:]
+
+        srt_lines.append(f"{counter}\n{time_line}\n" + "\n".join(text_lines))
         counter += 1
-    return "\n\n".join(srt)
+
+    return "\n\n".join(srt_lines)
+
     
 
 @app.route("/download_sub")
 def download_sub():
     url = request.args.get("url")
-    fmt = request.args.get("fmt", "srt")
-
     if not url:
         return "No subtitle url", 400
 
     r = requests.get(url, timeout=20)
-    text = r.text
+    vtt_text = r.text
 
-    if fmt == "srt":
-        text = vtt_to_srt(text)
-        mimetype = "text/srt"
-        filename = "subtitle.srt"
-    else:
-        mimetype = "text/vtt"
-        filename = "subtitle.vtt"
+    # Convert to SRT
+    srt_text = vtt_to_srt(vtt_text)
 
     return app.response_class(
-        text,
-        mimetype=mimetype,
-        headers={"Content-Disposition": f"attachment;filename={filename}"}
+        srt_text,
+        mimetype="text/srt",
+        headers={"Content-Disposition": "attachment;filename=subtitle.srt"}
     )
 
 if __name__ == "__main__":
