@@ -18,9 +18,9 @@ def home():
 
             posts = soup.select("article")
             for post in posts:
-                title = post.select_one("h2 a").get_text(strip=True) if post.select_one("h2 a") else "No Title"
-                link = post.select_one("h2 a")["href"] if post.select_one("h2 a") else "#"
+                title = post.select_one(".eggtitle").get_text(strip=True) if post.select_one(".eggtitle") else "No Title"
                 img = post.select_one("img")["src"] if post.select_one("img") else ""
+                link = post.select_one("a")["href"] if post.select_one("a") else "#"
                 results.append({"title": title, "link": link, "img": img})
 
     return render_template("index.html", results=results)
