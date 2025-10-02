@@ -106,26 +106,21 @@ def watch():
     return render_template("watch.html", video_options=video_options, subs=subs)
 
 
-def extract_dailymotion_subs(video_id):
+def extract_subs_from_m3u8(m3u8_url):
     subs = []
-    meta_url = f"https://www.dailymotion.com/player/metadata/video/{video_id}"
-    resp = requests.get(meta_url, timeout=15).json()
-    
-    # find HLS master playlist
-    qualities = resp.get("qualities", {})
-    for quality, sources in qualities.items():
-        for s in sources:
-            if s.get("type") == "application/x-mpegURL":  # HLS
-                m3u8_url = s["url"]
-                playlist = m3u8.load(m3u8_url)
-                for media in playlist.media:
-                    if media.type == "SUBTITLES":
-                        subs.append({
-                            "lang": media.language or "unknown",
-                            "name": media.name or media.language,
-                            "url": media.uri
-                        })
-                return subs
+    try:
+        r = requests.get(m3u8_url, timeout=20)
+        playlist = m3u8.loads(r.text)
+
+        for media in playlist.media:
+            if media.type == "SUBTITLES":
+                subs.append({
+                    "lang": media.language or "unknown",
+                    "name": media.name or media.language,
+                    "url": media.uri
+                })
+    except Exception as e:
+        print("Error extracting subs from m3u8:", e)
     return subs
 
 
