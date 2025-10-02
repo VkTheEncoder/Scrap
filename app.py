@@ -97,47 +97,44 @@ def watch():
                 if src:
                     video_options.append({"label": label, "src": src})
 
-                    # Only if it's Dailymotion
+                    # 👉 if it's a dailymotion embed
                     if "dailymotion.com/embed/video/" in src:
                         vid_id = src.split("/embed/video/")[-1].split("?")[0]
-                        meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-                        try:
-                            meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
-                            # get m3u8 link from qualities
-                            m3u8_url = None
-                            for q in meta.get("qualities", {}).values():
-                                for stream in q:
-                                    if stream.get("type") == "application/x-mpegURL":
-                                        m3u8_url = stream.get("url")
-                                        break
-                            if m3u8_url:
-                                subs.extend(extract_subs_from_m3u8(m3u8_url))
-                        except Exception as e:
-                            print("Subtitle fetch failed:", e)
 
+                        # First get metadata (optional)
+                        meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+                        meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+
+                        # Get m3u8 link from metadata
+                        if "qualities" in meta:
+                            for q, streams in meta["qualities"].items():
+                                for stream in streams:
+                                    if stream.get("type") == "application/x-mpegURL":
+                                        m3u8_url = stream["url"]
+                                        subs.extend(extract_subs_from_m3u8(m3u8_url))
+                                        break
             except Exception:
                 continue
 
     return render_template("watch.html", video_options=video_options, subs=subs)
 
 
-
 def extract_subs_from_m3u8(m3u8_url):
     subs = []
     try:
         r = requests.get(m3u8_url, timeout=20)
-        for line in r.text.splitlines():
-            line = line.strip()
-            if line.startswith("http") and ".vtt" in line:
+        playlist = m3u8.loads(r.text)
+
+        for media in playlist.media:
+            if media.type == "SUBTITLES":
                 subs.append({
-                    "lang": "Unknown",
-                    "url": line
+                    "lang": media.language or "unknown",
+                    "name": media.name or media.language,
+                    "url": media.uri
                 })
     except Exception as e:
         print("Error extracting subs from m3u8:", e)
     return subs
-
-
 
 def download_full_vtt(m3u8_url):
     base_url = m3u8_url.rsplit("/", 1)[0]
