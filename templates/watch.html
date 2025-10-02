@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Watch</title>
+</head>
+<body>
+    <h2>Available Video Servers</h2>
+    <form>
+        <select id="videoSelect" onchange="showLink(this)">
+            <option value="">Select Video Server</option>
+            {% for v in video_options %}
+            <option value="{{ v.src }}">{{ v.label }}</option>
+            {% endfor %}
+        </select>
+    </form>
+
+    <div id="player" style="margin-top:20px;">
+        <p>Select a server to get video link</p>
+    </div>
+
+    <script>
+        function showLink(sel) {
+            if(sel.value){
+                document.getElementById("player").innerHTML = 
+                  `<p><b>Video Link:</b> <a href="${sel.value}" target="_blank">${sel.value}</a></p>
+                   <iframe src="${sel.value}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
+            }
+        }
+    </script>
+</body>
+</html>
