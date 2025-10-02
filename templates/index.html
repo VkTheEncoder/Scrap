@@ -1,31 +1,38 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AnimeXin Search</title>
-    <style>
-        body { font-family: Arial; text-align: center; background: #f2f2f2; }
-        form { margin: 20px; }
-        .card { background: white; border-radius: 8px; padding: 10px; margin: 10px auto; width: 300px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
-        img { max-width: 100%; border-radius: 6px; }
-        a { text-decoration: none; font-weight: bold; color: #333; display: block; margin-top: 8px; }
-    </style>
+  <title>AnimeXin Search</title>
+  <style>
+    body { font-family: Arial; background:#f2f2f2; margin:0; padding:20px; text-align:center; }
+    form { margin: 20px auto; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:16px; max-width:1100px; margin:0 auto; }
+    .card { background:#fff; border-radius:10px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+    .thumb { width:100%; border-radius:8px; }
+    .title { font-weight:600; margin-top:8px; }
+    .actions { display:flex; gap:8px; justify-content:center; margin-top:8px; }
+    .btn { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fafafa; text-decoration:none; color:#111; }
+    .btn:hover { background:#eee; }
+  </style>
 </head>
 <body>
-    <h1>AnimeXin Search</h1>
-    <form method="post">
-        <input type="text" name="query" placeholder="Search anime..." required>
-        <button type="submit">Search</button>
-    </form>
+  <h1>AnimeXin Search (Local)</h1>
+  <form method="post">
+    <input type="text" name="query" placeholder="Search anime..." required>
+    <button type="submit">Search</button>
+  </form>
 
-    <div>
-        {% for r in results %}
-        <div class="card">
-            <a href="{{ r.link }}" target="_blank">
-                <img src="{{ r.img }}" alt="Image">
-                <div>{{ r.title }}</div>
-            </a>
-        </div>
-        {% endfor %}
+  <div class="grid">
+    {% for r in results %}
+    <div class="card">
+      <img src="{{ r.img }}" alt="Poster" class="thumb">
+      <div class="title">{{ r.title }}</div>
+      <div class="actions">
+        <!-- IMPORTANT: route to your Episodes page, not the original site -->
+        <a class="btn" href="/episodes?u={{ r.post_token }}">Episodes</a>
+        <a class="btn" href="{{ r.post_url }}" target="_blank">Original</a>
+      </div>
     </div>
+    {% endfor %}
+  </div>
 </body>
 </html>
