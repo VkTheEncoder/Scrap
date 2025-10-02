@@ -46,7 +46,7 @@
       if(!sel.value) return;
       document.getElementById('player').innerHTML =
         `<p><b>Video link:</b> <a href="${sel.value}" target="_blank">${sel.value}</a></p>
-      
+         <iframe src="${sel.value}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
     }
   </script>
 </body>
