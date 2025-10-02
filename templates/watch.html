@@ -25,21 +25,18 @@
 
     <div id="player"><p>Choose a server to preview the video and copy its link.</p></div>
 
-    {% if video_options %}
-      <div id="subtitles">
-        {% if subs and subs|length > 0 %}
-          <h3>Available Subtitles</h3>
-          <ul>
-            {% for s in subs %}
-              <li><a href="{{ s.url }}" download>Download ({{ s.lang }})</a></li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          {% if subs is not defined or subs|length == 0 %}
-            <!-- Do not show "not found" yet -->
-          {% endif %}
-        {% endif %}
-      </div>
+    {% if subs %}
+      <h3>Available Subtitles</h3>
+      <ul>
+        {% for s in subs %}
+          <li>
+            {{ s.lang }} ({{ s.name }}) → 
+            <a href="{{ s.url }}" target="_blank" download>Download</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No subtitle tracks found for this server.</p>
     {% endif %}
 
     <div style="margin-top:12px;"><a href="javascript:history.back()">← Back</a></div>
