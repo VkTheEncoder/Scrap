@@ -16,12 +16,26 @@ def home():
             response = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"})
             soup = BeautifulSoup(response.text, "html.parser")
 
-            posts = soup.select("article")
+            posts = soup.select("article.bs")
             for post in posts:
-                title = post.select_one(".eggtitle").get_text(strip=True) if post.select_one(".eggtitle") else "No Title"
-                img = post.select_one("img")["src"] if post.select_one("img") else ""
+                # Link
                 link = post.select_one("a")["href"] if post.select_one("a") else "#"
-                results.append({"title": title, "link": link, "img": img})
+            
+                # Short title
+                title = post.select_one(".eggtitle").get_text(strip=True) if post.select_one(".eggtitle") else "No Title"
+            
+                # Episode info (optional)
+                episode = post.select_one(".eggepisode").get_text(strip=True) if post.select_one(".eggepisode") else ""
+            
+                # Image
+                img = post.select_one("img")["src"] if post.select_one("img") else ""
+            
+                results.append({
+                    "title": f"{title} {episode}".strip(),
+                    "link": link,
+                    "img": img
+                })
+
 
     return render_template("index.html", results=results)
 
