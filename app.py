@@ -77,8 +77,7 @@ import re
 def watch():
     token = request.args.get("u", "")
     url = b64d(token) if token else ""
-    video_options = []
-    subs = []
+    video_options, subs = [], []
 
     if url:
         r = requests.get(url, headers=HEADERS, timeout=30)
@@ -87,28 +86,28 @@ def watch():
         for option in soup.select("select.mirror option"):
             label = option.get_text(strip=True)
             encoded = option.get("value", "")
-            if not encoded: 
+            if not encoded:
                 continue
-
             try:
                 decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
                 inner = BeautifulSoup(decoded_html, "html.parser")
                 iframe = inner.find("iframe")
                 src = iframe.get("src") if iframe else None
+
                 if src:
                     video_options.append({"label": label, "src": src})
 
-                    # --- Subtitles: special handling for dailymotion ---
+                    # 👉 subtitle extraction for Dailymotion
                     if "dailymotion.com/embed/video/" in src:
                         vid_id = src.split("/embed/video/")[-1].split("?")[0]
                         meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-                        meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
-                        if "subtitles" in meta:
-                            for lang, info in meta["subtitles"].items():
-                                subs.append({
-                                    "lang": lang,
-                                    "url": info["url"]
-                                })
+                        try:
+                            meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+                            if "subtitles" in meta:
+                                for lang, info in meta["subtitles"].items():
+                                    subs.append({"lang": lang, "url": info["url"]})
+                        except Exception as e:
+                            print("Subtitle fetch failed:", e)
 
             except Exception:
                 continue
