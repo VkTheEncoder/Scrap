@@ -136,21 +136,40 @@ def extract_subs_from_m3u8(m3u8_url):
         print("Error extracting subs from m3u8:", e)
     return subs
 
+def download_full_vtt(m3u8_url):
+    base_url = m3u8_url.rsplit("/", 1)[0]
+    r = requests.get(m3u8_url, timeout=20)
+    lines = r.text.splitlines()
+
+    vtt_content = []
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            # Construct absolute URL if relative
+            frag_url = line if line.startswith("http") else f"{base_url}/{line}"
+            frag_text = requests.get(frag_url, timeout=20).text
+            # Remove "WEBVTT" headers inside fragments
+            frag_text = frag_text.replace("WEBVTT", "").strip()
+            vtt_content.append(frag_text)
+
+    return "\n\n".join(vtt_content)
+
 def vtt_to_srt(vtt_text: str) -> str:
     srt = []
     counter = 1
     for block in vtt_text.strip().split("\n\n"):
         lines = block.splitlines()
-        if not lines or lines[0].startswith("WEBVTT"):
+        if not lines:
             continue
-        # Replace VTT arrow style
-        if "-->" in lines[0]:
-            time_line = lines[0].replace(".", ",")
-            text_lines = lines[1:]
-        else:
-            time_line = lines[1].replace(".", ",")
-            text_lines = lines[2:]
-
+        # Find timestamp line
+        time_line = None
+        for i, line in enumerate(lines):
+            if "-->" in line:
+                time_line = line.replace(".", ",")
+                text_lines = lines[i+1:]
+                break
+        if not time_line:
+            continue
         srt.append(f"{counter}\n{time_line}\n" + "\n".join(text_lines))
         counter += 1
     return "\n\n".join(srt)
