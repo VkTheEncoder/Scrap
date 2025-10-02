@@ -136,6 +136,50 @@ def extract_subs_from_m3u8(m3u8_url):
         print("Error extracting subs from m3u8:", e)
     return subs
 
+def vtt_to_srt(vtt_text: str) -> str:
+    srt = []
+    counter = 1
+    for block in vtt_text.strip().split("\n\n"):
+        lines = block.splitlines()
+        if not lines or lines[0].startswith("WEBVTT"):
+            continue
+        # Replace VTT arrow style
+        if "-->" in lines[0]:
+            time_line = lines[0].replace(".", ",")
+            text_lines = lines[1:]
+        else:
+            time_line = lines[1].replace(".", ",")
+            text_lines = lines[2:]
+
+        srt.append(f"{counter}\n{time_line}\n" + "\n".join(text_lines))
+        counter += 1
+    return "\n\n".join(srt)
+    
+
+@app.route("/download_sub")
+def download_sub():
+    url = request.args.get("url")
+    fmt = request.args.get("fmt", "srt")
+
+    if not url:
+        return "No subtitle url", 400
+
+    r = requests.get(url, timeout=20)
+    text = r.text
+
+    if fmt == "srt":
+        text = vtt_to_srt(text)
+        mimetype = "text/srt"
+        filename = "subtitle.srt"
+    else:
+        mimetype = "text/vtt"
+        filename = "subtitle.vtt"
+
+    return app.response_class(
+        text,
+        mimetype=mimetype,
+        headers={"Content-Disposition": f"attachment;filename={filename}"}
+    )
 
 if __name__ == "__main__":
     # local run
