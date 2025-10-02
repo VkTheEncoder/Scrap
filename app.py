@@ -114,17 +114,22 @@ def watch():
 
     return render_template("watch.html", video_options=video_options, subs=subs)
 
-def extract_subs_from_m3u8(m3u8_url):
-    subs = []
-    resp = requests.get(m3u8_url, timeout=20)
-    playlist = m3u8.loads(resp.text)
 
-    for media in playlist.media:
-        if media.type == "SUBTITLES":
-            subs.append({
-                "lang": media.language or "unknown",
-                "url": media.uri
-            })
+def get_dailymotion_subs(iframe_url):
+    subs = []
+    if "dailymotion.com/embed/video/" in iframe_url:
+        video_id = iframe_url.split("/embed/video/")[-1].split("?")[0]
+        meta_url = f"https://www.dailymotion.com/player/metadata/video/{video_id}"
+        try:
+            resp = requests.get(meta_url, timeout=15).json()
+            if "subtitles" in resp:
+                for lang, info in resp["subtitles"].items():
+                    subs.append({
+                        "lang": info.get("language", lang),
+                        "url": info.get("url")
+                    })
+        except Exception as e:
+            print("Error fetching subs:", e)
     return subs
 
 
