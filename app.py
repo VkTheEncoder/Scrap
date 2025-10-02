@@ -115,6 +115,19 @@ def watch():
 
     return render_template("watch.html", video_options=video_options, subs=subs)
 
+def extract_subs_from_m3u8(m3u8_url):
+    subs = []
+    resp = requests.get(m3u8_url, timeout=20)
+    playlist = m3u8.loads(resp.text)
+
+    for media in playlist.media:
+        if media.type == "SUBTITLES":
+            subs.append({
+                "lang": media.language or "unknown",
+                "url": media.uri
+            })
+    return subs
+
 
 if __name__ == "__main__":
     # local run
