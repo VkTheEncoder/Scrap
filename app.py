@@ -6,86 +6,97 @@ from bs4 import BeautifulSoup
 app = Flask(__name__)
 
 BASE_URL = "https://animexin.dev"
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+def b64e(s: str) -> str:
+    return base64.urlsafe_b64encode(s.encode("utf-8")).decode("utf-8")
+
+def b64d(s: str) -> str:
+    return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8")
 
 @app.route("/", methods=["GET", "POST"])
 def home():
     results = []
     if request.method == "POST":
-        query = request.form.get("query")
+        query = request.form.get("query", "").strip()
         if query:
             search_url = f"{BASE_URL}/?s={query}"
-            response = requests.get(search_url, headers={"User-Agent": "Mozilla/5.0"})
-            soup = BeautifulSoup(response.text, "html.parser")
+            r = requests.get(search_url, headers=HEADERS, timeout=30)
+            soup = BeautifulSoup(r.text, "html.parser")
 
-            posts = soup.select("article.bs")
-            for post in posts:
-                link = post.select_one("a")["href"] if post.select_one("a") else "#"
-                title = post.select_one(".eggtitle").get_text(strip=True) if post.select_one(".eggtitle") else "No Title"
-                episode = post.select_one(".eggepisode").get_text(strip=True) if post.select_one(".eggepisode") else ""
-                img = post.select_one("img")["src"] if post.select_one("img") else ""
+            # Each result card
+            for post in soup.select("article.bs"):
+                a = post.select_one("a")
+                link = a["href"] if a and a.has_attr("href") else ""
+                title_el = post.select_one(".eggtitle")
+                ep_el = post.select_one(".eggepisode")
+                img_el = post.select_one("img")
+
+                title = title_el.get_text(strip=True) if title_el else "No Title"
+                episode = f" {ep_el.get_text(strip=True)}" if ep_el else ""
+                img = img_el["src"] if img_el and img_el.has_attr("src") else ""
 
                 results.append({
-                    "title": f"{title} {episode}".strip(),
-                    "link": link,
-                    "img": img
+                    "title": (title + episode).strip(),
+                    "img": img,
+                    "post_url": link,           # original page (kept for 'Original' button)
+                    "post_token": b64e(link)    # safe token to pass in querystring
                 })
 
     return render_template("index.html", results=results)
 
-
 @app.route("/episodes")
 def episodes():
-    url = request.args.get("url")
+    token = request.args.get("u", "")
+    url = b64d(token) if token else ""
     episodes = []
 
     if url:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(response.text, "html.parser")
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        soup = BeautifulSoup(r.text, "html.parser")
 
-        # Grab all episode list items
         for li in soup.select(".eplister ul li"):
-            num = li.select_one(".epl-num").get_text(strip=True) if li.select_one(".epl-num") else "?"
-            title = li.select_one(".epl-title").get_text(strip=True) if li.select_one(".epl-title") else ""
-            link = li.select_one("a")["href"] if li.select_one("a") else "#"
+            a = li.select_one("a")
+            num = li.select_one(".epl-num")
+            title = li.select_one(".epl-title")
+            if a and a.has_attr("href"):
+                href = a["href"]
+                episodes.append({
+                    "num": num.get_text(strip=True) if num else "?",
+                    "title": title.get_text(strip=True) if title else "",
+                    "episode_token": b64e(href)
+                })
 
-            episodes.append({
-                "num": num,
-                "title": title,
-                "link": link
-            })
-
-    return render_template("episodes.html", episodes=episodes, url=url)
-
+    return render_template("episodes.html", episodes=episodes)
 
 @app.route("/watch")
 def watch():
-    url = request.args.get("url")
+    token = request.args.get("u", "")
+    url = b64d(token) if token else ""
     video_options = []
 
     if url:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(response.text, "html.parser")
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        soup = BeautifulSoup(r.text, "html.parser")
 
-        # Find all <option> under select.mirror
+        # Decode every <option value="..."> under select.mirror
         for option in soup.select("select.mirror option"):
             label = option.get_text(strip=True)
-            encoded_value = option["value"]
-
+            encoded = option.get("value", "")
+            if not encoded:
+                continue
             try:
-                # Decode base64
-                decoded_html = base64.b64decode(encoded_value).decode("utf-8", errors="ignore")
-
-                # Parse iframe src
-                inner_soup = BeautifulSoup(decoded_html, "html.parser")
-                iframe = inner_soup.find("iframe")
-                src = iframe["src"] if iframe else None
+                decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
+                inner = BeautifulSoup(decoded_html, "html.parser")
+                iframe = inner.find("iframe")
+                src = iframe.get("src") if iframe else None
                 if src:
                     video_options.append({"label": label, "src": src})
             except Exception:
-                pass
+                continue
 
-    return render_template("watch.html", video_options=video_options, url=url)
-
+    return render_template("watch.html", video_options=video_options)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # local run
+    app.run(host="127.0.0.1", port=5000, debug=True)
