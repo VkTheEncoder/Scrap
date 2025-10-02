@@ -96,10 +96,23 @@ def watch():
 
                 if src:
                     video_options.append({"label": label, "src": src})
-                
-                    # use helper to get subs
-                    subs.extend(get_dailymotion_subs(src))
 
+                    # 👉 if it's a dailymotion embed
+                    if "dailymotion.com/embed/video/" in src:
+                        vid_id = src.split("/embed/video/")[-1].split("?")[0]
+
+                        # First get metadata (optional)
+                        meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+                        meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+
+                        # Get m3u8 link from metadata
+                        if "qualities" in meta:
+                            for q, streams in meta["qualities"].items():
+                                for stream in streams:
+                                    if stream.get("type") == "application/x-mpegURL":
+                                        m3u8_url = stream["url"]
+                                        subs.extend(extract_subs_from_m3u8(m3u8_url))
+                                        break
             except Exception:
                 continue
 
