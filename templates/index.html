@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AnimeXin Search</title>
+    <style>
+        body { font-family: Arial; text-align: center; background: #f2f2f2; }
+        form { margin: 20px; }
+        .card { background: white; border-radius: 8px; padding: 10px; margin: 10px auto; width: 300px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        img { max-width: 100%; border-radius: 6px; }
+        a { text-decoration: none; font-weight: bold; color: #333; display: block; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <h1>AnimeXin Search</h1>
+    <form method="post">
+        <input type="text" name="query" placeholder="Search anime..." required>
+        <button type="submit">Search</button>
+    </form>
+
+    <div>
+        {% for r in results %}
+        <div class="card">
+            <img src="{{ r.img }}" alt="Image">
+            <a href="{{ r.link }}" target="_blank">{{ r.title }}</a>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
