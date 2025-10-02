@@ -106,21 +106,26 @@ def watch():
     return render_template("watch.html", video_options=video_options, subs=subs)
 
 
-def get_dailymotion_subs(iframe_url):
+def extract_dailymotion_subs(video_id):
     subs = []
-    if "dailymotion.com/embed/video/" in iframe_url:
-        video_id = iframe_url.split("/embed/video/")[-1].split("?")[0]
-        meta_url = f"https://www.dailymotion.com/player/metadata/video/{video_id}"
-        try:
-            resp = requests.get(meta_url, timeout=15).json()
-            if "subtitles" in resp:
-                for lang, info in resp["subtitles"].items():
-                    subs.append({
-                        "lang": info.get("language", lang),
-                        "url": info.get("url")
-                    })
-        except Exception as e:
-            print("Error fetching subs:", e)
+    meta_url = f"https://www.dailymotion.com/player/metadata/video/{video_id}"
+    resp = requests.get(meta_url, timeout=15).json()
+    
+    # find HLS master playlist
+    qualities = resp.get("qualities", {})
+    for quality, sources in qualities.items():
+        for s in sources:
+            if s.get("type") == "application/x-mpegURL":  # HLS
+                m3u8_url = s["url"]
+                playlist = m3u8.load(m3u8_url)
+                for media in playlist.media:
+                    if media.type == "SUBTITLES":
+                        subs.append({
+                            "lang": media.language or "unknown",
+                            "name": media.name or media.language,
+                            "url": media.uri
+                        })
+                return subs
     return subs
 
 
