@@ -30,14 +30,11 @@
       <ul>
         {% for s in subs %}
           <li>
-            {{ s.lang }} ({{ s.name }}) →
-            <a href="{{ url_for('download_sub', url=s.url, fmt='srt') }}">Download SRT</a> |
-            <a href="{{ url_for('download_sub', url=s.url, fmt='vtt') }}">Download VTT</a>
+            {{ s.lang }} ({{ s.name }})
+            → <a href="{{ url_for('download_sub', url=s.url) }}">Download SRT</a>
           </li>
         {% endfor %}
       </ul>
-    {% else %}
-      <p>No subtitle tracks found for this server.</p>
     {% endif %}
 
 
