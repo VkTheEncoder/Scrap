@@ -3,6 +3,7 @@ from flask import Flask, render_template, request
 import requests
 from bs4 import BeautifulSoup
 import re, json
+import m3u8
 
 app = Flask(__name__)
 
