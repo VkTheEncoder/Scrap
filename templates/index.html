@@ -20,8 +20,10 @@
     <div>
         {% for r in results %}
         <div class="card">
-            <img src="{{ r.img }}" alt="Image">
-            <a href="{{ r.link }}" target="_blank">{{ r.title }}</a>
+            <a href="{{ r.link }}" target="_blank">
+                <img src="{{ r.img }}" alt="Image">
+                <div>{{ r.title }}</div>
+            </a>
         </div>
         {% endfor %}
     </div>
