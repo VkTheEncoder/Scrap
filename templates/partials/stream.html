@@ -1,0 +1,18 @@
+<h2>Episode {{ ep }}</h2>
+
+<p><strong>Stream Link:</strong></p>
+{% if link %}
+  <a href="{{ link }}" target="_blank">{{ link }}</a>
+  <div style="margin-top:10px;">
+    <iframe src="{{ link }}" width="640" height="360" frameborder="0" allowfullscreen></iframe>
+  </div>
+{% else %}
+  <p>No stream link found.</p>
+{% endif %}
+
+{% if sub %}
+  <h3>Subtitle File</h3>
+  <a href="{{ url_for('download_sub', url=sub) }}" target="_blank">Download Subtitle</a>
+{% else %}
+  <p>No subtitle available for the selected language.</p>
+{% endif %}
