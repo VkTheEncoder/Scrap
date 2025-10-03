@@ -25,8 +25,8 @@
 
     <!-- SEARCH -->
     <h2>Search Anime</h2>
-    <form id="searchForm">
-      <input type="text" id="query" name="query" placeholder="Enter anime name or URL" size="50">
+    <form id="searchForm" onsubmit="return false;">
+      <input type="text" id="query" name="query" placeholder="Enter anime name or URL" size="50" required>
 
       <!-- Server Dropdown -->
       <select id="server" name="server">
