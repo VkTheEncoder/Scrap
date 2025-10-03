@@ -1,15 +1,23 @@
 <h2>{{ title }}</h2>
 <p>Found {{ eps|length }} episodes available.</p>
 
+<!-- Input to jump directly to a specific episode -->
 <div>
   <input type="number" id="ep_number" placeholder="Enter episode number (1-{{ eps|length }})">
-  <button onclick="selectEpisode('{{ anime_id }}', $('#ep_number').val())">Process Selected</button>
+  <button onclick="selectEpisode('{{ anime_id }}', $('#ep_number').val())">
+    Process Selected
+  </button>
 </div>
 
+<!-- List of all episodes -->
 <div class="episode-list">
-  {% for ep in eps %}
-    <button onclick="selectEpisode('{{ ep.episode_token }}', '{{ ep.num }}')">
-      Ep {{ ep.num }} - {{ ep.title }}
-    </button>
-  {% endfor %}
+  {% if eps %}
+    {% for ep in eps %}
+      <button onclick="selectEpisode('{{ ep.episode_token }}', '{{ ep.num }}')">
+        Ep {{ ep.num }} - {{ ep.title }}
+      </button>
+    {% endfor %}
+  {% else %}
+    <p>No episodes found for this anime.</p>
+  {% endif %}
 </div>
