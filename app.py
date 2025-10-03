@@ -123,36 +123,45 @@ def extract_subs_from_m3u8(m3u8_url):
     subs = []
     try:
         r = requests.get(m3u8_url, timeout=20)
-        playlist = m3u8.loads(r.text)
+        lines = r.text.splitlines()
 
-        for media in playlist.media:
-            if media.type == "SUBTITLES":
+        for line in lines:
+            line = line.strip()
+            if line.endswith(".vtt") or "subtitle" in line:
                 subs.append({
-                    "lang": media.language or "unknown",
-                    "name": media.name or media.language,
-                    "url": media.uri
+                    "lang": "unknown",
+                    "name": "Subtitle",
+                    "url": line
                 })
     except Exception as e:
         print("Error extracting subs from m3u8:", e)
     return subs
 
-def download_full_vtt(m3u8_url):
-    base_url = m3u8_url.rsplit("/", 1)[0]
+
+def download_full_vtt(m3u8_url, output_file="subtitle.srt"):
+    # Step 1: extract real .vtt link from .m3u8
     r = requests.get(m3u8_url, timeout=20)
     lines = r.text.splitlines()
-
-    vtt_content = []
+    vtt_url = None
     for line in lines:
-        line = line.strip()
-        if line and not line.startswith("#"):
-            # Construct absolute URL if relative
-            frag_url = line if line.startswith("http") else f"{base_url}/{line}"
-            frag_text = requests.get(frag_url, timeout=20).text
-            # Remove "WEBVTT" headers inside fragments
-            frag_text = frag_text.replace("WEBVTT", "").strip()
-            vtt_content.append(frag_text)
+        if line.strip().endswith(".vtt") or "subtitle" in line:
+            vtt_url = line.strip()
+            break
+    if not vtt_url:
+        raise Exception("No VTT URL found in m3u8")
 
-    return "\n\n".join(vtt_content)
+    # Step 2: download VTT file
+    vtt_text = requests.get(vtt_url, timeout=20).text
+
+    # Step 3: convert VTT → SRT
+    srt_text = vtt_to_srt(vtt_text)
+
+    # Step 4: save to file
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(srt_text)
+
+    return output_file
+
 
 def vtt_to_srt(vtt_text: str) -> str:
     srt_lines = []
