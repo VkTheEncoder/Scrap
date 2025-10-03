@@ -1,9 +1,10 @@
 import base64
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, Response
 import requests
 from bs4 import BeautifulSoup
 import re, json
 import m3u8
+from urllib.parse import urljoin, unquote
 
 app = Flask(__name__)
 
@@ -119,23 +120,51 @@ def watch():
     return render_template("watch.html", video_options=video_options, subs=subs)
 
 
-def extract_subs_from_m3u8(m3u8_url):
+def extract_subs_from_m3u8(m3u8_url: str):
+    """
+    Parse a master m3u8 for subtitles.
+    - Prefer #EXT-X-MEDIA TYPE=SUBTITLES entries (URI points to subtitle .m3u8 per language)
+    - Fallback: direct .vtt links present in the playlist
+    """
     subs = []
     try:
-        r = requests.get(m3u8_url, timeout=20)
-        lines = r.text.splitlines()
+        r = requests.get(m3u8_url, headers=HEADERS, timeout=20)
+        text = r.text
 
-        for line in lines:
+        # 1) Structured subtitle groups
+        for line in text.splitlines():
             line = line.strip()
-            if line.endswith(".vtt") or "subtitle" in line:
-                subs.append({
-                    "lang": "unknown",
-                    "name": "Subtitle",
-                    "url": line
-                })
+            if line.startswith("#EXT-X-MEDIA") and "TYPE=SUBTITLES" in line:
+                attrs = dict(re.findall(r'([A-Z0-9\-]+)="(.*?)"', line))
+                uri  = attrs.get("URI")
+                if not uri:
+                    continue
+                sub_m3u8 = urljoin(m3u8_url, uri)
+                lang = attrs.get("LANGUAGE") or attrs.get("ASSOC-LANGUAGE") or attrs.get("NAME") or "unknown"
+                name = attrs.get("NAME") or lang
+                subs.append({"lang": lang, "name": name, "url": sub_m3u8})
+
+        # 2) Fallback: plain .vtt link inside the playlist (your dailymotion case)
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                m = re.search(r'(https?://\S+?\.vtt\S*)', line)
+                if m:
+                    vtt_url = urljoin(m3u8_url, m.group(1))
+                    subs.append({"lang": "unknown", "name": vtt_url.rsplit("/", 1)[-1], "url": vtt_url})
+
+        # dedupe by url
+        seen = set()
+        unique = []
+        for s in subs:
+            if s["url"] not in seen:
+                unique.append(s)
+                seen.add(s["url"])
+        return unique
+
     except Exception as e:
-        print("Error extracting subs from m3u8:", e)
-    return subs
+        print("Error extracting subs:", e)
+        return []
 
 
 def download_full_vtt(m3u8_url, output_file="subtitle.srt"):
@@ -164,67 +193,89 @@ def download_full_vtt(m3u8_url, output_file="subtitle.srt"):
 
 
 def vtt_to_srt(vtt_text: str) -> str:
-    srt_lines = []
-    counter = 1
+    lines = vtt_text.splitlines()
+    out = []
+    buf = []
+    idx = 1
 
-    for block in vtt_text.strip().split("\n\n"):
-        lines = block.strip().splitlines()
-        if not lines or lines[0].startswith("WEBVTT"):
+    def flush():
+        nonlocal idx, buf, out
+        if not buf:
+            return
+        # find time line
+        t_idx = -1
+        for i, l in enumerate(buf):
+            if "-->" in l:
+                t_idx = i
+                break
+        if t_idx == -1:
+            buf = []
+            return
+
+        time_line = buf[t_idx].replace(".", ",")
+        text_lines = [l for i, l in enumerate(buf) if i != t_idx and l.strip()]
+        out.append(f"{idx}\n{time_line}\n" + "\n".join(text_lines) + "\n")
+        idx += 1
+        buf = []
+
+    for raw in lines:
+        l = raw.rstrip("\n")
+        # skip headers/notes/styles/regions
+        if l.startswith("WEBVTT") or l.startswith("NOTE") or l.startswith("STYLE") or l.startswith("REGION") or l.startswith("Kind:") or l.startswith("Language:"):
             continue
-
-        # detect timestamp line
-        if "-->" in lines[0]:
-            time_line = lines[0].replace(".", ",")
-            text_lines = lines[1:]
+        if not l.strip():
+            flush()
         else:
-            time_line = lines[1].replace(".", ",")
-            text_lines = lines[2:]
-
-        srt_lines.append(f"{counter}\n{time_line}\n" + "\n".join(text_lines))
-        counter += 1
-
-    return "\n\n".join(srt_lines)
+            buf.append(l)
+    flush()
+    return "\n".join(out).strip() + ("\n" if out else "")
 
     
 
 @app.route("/download_sub")
 def download_sub():
-    url = request.args.get("url")
+    url = request.args.get("url", "").strip()
     if not url:
         return "No URL provided", 400
 
-    # 🔹 If we get a metadata line (#EXT...), try to extract real URI inside
+    # Decode percent-encoding just in case
+    url = unquote(url)
+
+    # If someone accidentally sent a metadata line, try to extract URI
     if url.startswith("#EXT"):
-        match = re.search(r'URI="([^"]+)"', url)
-        if match:
-            url = match.group(1)
-        else:
+        m = re.search(r'URI="([^"]+)"', url)
+        if not m:
             return "No valid URI found in line", 400
+        url = m.group(1)
 
     try:
-        # 🔹 If still a .m3u8, parse it and skip metadata
+        # Case A: url is a subtitle m3u8 → find the .vtt inside it
         if url.endswith(".m3u8"):
-            r = requests.get(url, timeout=20)
-            lines = r.text.splitlines()
+            r = requests.get(url, headers=HEADERS, timeout=20)
+            text = r.text
 
-            # Look for real .vtt link
-            for line in lines:
+            vtt_url = None
+            # prefer explicit .vtt
+            for line in text.splitlines():
                 line = line.strip()
-                if line and not line.startswith("#") and line.endswith(".vtt"):
-                    url = line
-                    break
+                if line and not line.startswith("#"):
+                    m = re.search(r'(https?://\S+?\.vtt\S*)', line)
+                    if m:
+                        vtt_url = urljoin(url, m.group(1))
+                        break
+            if not vtt_url:
+                return "No VTT URL found inside subtitle m3u8", 404
+            url = vtt_url
 
-        # 🔹 Download final subtitle file
-        r = requests.get(url, timeout=20)
-        vtt_text = r.text
-
-        # 🔹 Convert to SRT
-        srt_text = vtt_to_srt(vtt_text)
+        # Case B: url is now a direct .vtt → download & convert
+        vtt_resp = requests.get(url, headers=HEADERS, timeout=20)
+        vtt_resp.raise_for_status()
+        srt_text = vtt_to_srt(vtt_resp.text)
 
         return Response(
             srt_text,
             mimetype="text/plain",
-            headers={"Content-Disposition": "attachment;filename=subtitle.srt"}
+            headers={"Content-Disposition": "attachment; filename=subtitle.srt"}
         )
     except Exception as e:
         return f"Error: {e}", 500
