@@ -1,26 +1,17 @@
+console.log("main.js loaded ✅");
+
 // ===============================
 // Handle Search Form Submit
 // ===============================
 $("#searchForm").on("submit", function(e) {
     e.preventDefault();
+    console.log("Search form submitted via AJAX ✅");
 
-    // Collect values from form
-    let query = $("#query").val();
-    let server = $("#server").val();
-    let subtitle = $("#subtitle").val();
-
-    if (!query) {
-        alert("Please enter an anime name or URL");
-        return;
-    }
-
-    // Send AJAX request to /search
     $.post("/search", {
-        query: query,
-        server: server,
-        subtitle: subtitle
+        query: $("#query").val(),
+        server: $("#server").val(),
+        subtitle: $("#subtitle").val()
     }, function(data) {
-        // Inject results HTML into #results
         $("#results").html(data).show();
         $("#episodes, #stream").hide();
     }).fail(function() {
@@ -28,11 +19,11 @@ $("#searchForm").on("submit", function(e) {
     });
 });
 
-
 // ===============================
 // Select Anime -> Load Episodes
 // ===============================
 function selectAnime(id) {
+    console.log("Anime selected:", id);
     $.post("/episodes", { anime_id: id }, function(data) {
         $("#episodes").html(data).show();
         $("#stream").hide();
@@ -40,7 +31,6 @@ function selectAnime(id) {
         alert("Error loading episodes.");
     });
 }
-
 
 // ===============================
 // Select Episode -> Load Stream
@@ -50,6 +40,7 @@ function selectEpisode(anime_id, ep) {
         alert("Please enter/select an episode.");
         return;
     }
+    console.log("Episode selected:", ep);
 
     $.post("/stream", {
         anime_id: anime_id,
