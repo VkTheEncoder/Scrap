@@ -3,28 +3,13 @@
 // ===============================
 $("#searchForm").on("submit", function(e) {
     e.preventDefault();
-
-    // Collect values from form
-    let query = $("#query").val();
-    let server = $("#server").val();
-    let subtitle = $("#subtitle").val();
-
-    if (!query) {
-        alert("Please enter an anime name or URL");
-        return;
-    }
-
-    // Send AJAX request
     $.post("/search", {
-        query: query,
-        server: server,
-        subtitle: subtitle
+        query: $("#query").val(),
+        server: $("#server").val(),
+        subtitle: $("#subtitle").val()
     }, function(data) {
-        // Inject results
         $("#results").html(data).show();
         $("#episodes, #stream").hide();
-    }).fail(function() {
-        alert("Error while searching. Please try again.");
     });
 });
 
