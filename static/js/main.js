@@ -1,21 +1,23 @@
 console.log("main.js loaded ✅");
 
-// ===============================
-// Handle Search Form Submit
-// ===============================
-$("#searchForm").on("submit", function(e) {
-    e.preventDefault();
-    console.log("Search form submitted via AJAX ✅");
+$(document).ready(function() {
+    // ===============================
+    // Handle Search Form Submit
+    // ===============================
+    $("#searchForm").on("submit", function(e) {
+        e.preventDefault();
+        console.log("Search form submitted via AJAX ✅");
 
-    $.post("/search", {
-        query: $("#query").val(),
-        server: $("#server").val(),
-        subtitle: $("#subtitle").val()
-    }, function(data) {
-        $("#results").html(data).show();
-        $("#episodes, #stream").hide();
-    }).fail(function() {
-        alert("Error while searching. Please try again.");
+        $.post("/search", {
+            query: $("#query").val(),
+            server: $("#server").val(),
+            subtitle: $("#subtitle").val()
+        }, function(data) {
+            $("#results").html(data).show();
+            $("#episodes, #stream").hide();
+        }).fail(function() {
+            alert("Error while searching. Please try again.");
+        });
     });
 });
 
