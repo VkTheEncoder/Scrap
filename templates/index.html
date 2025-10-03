@@ -1,38 +1,73 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>AnimeXin Search</title>
+  <meta charset="UTF-8">
+  <title>Anime Scraper</title>
   <style>
-    body { font-family: Arial; background:#f2f2f2; margin:0; padding:20px; text-align:center; }
-    form { margin: 20px auto; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:16px; max-width:1100px; margin:0 auto; }
-    .card { background:#fff; border-radius:10px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
-    .thumb { width:100%; border-radius:8px; }
-    .title { font-weight:600; margin-top:8px; }
-    .actions { display:flex; gap:8px; justify-content:center; margin-top:8px; }
-    .btn { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fafafa; text-decoration:none; color:#111; }
-    .btn:hover { background:#eee; }
+    body { font-family: Arial; background:#f6f7fb; padding:20px; }
+    .wrap { max-width:1000px; margin:0 auto; background:#fff; border-radius:12px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
+    h2 { margin-top:0; }
+    input, select, button { padding:8px 12px; border-radius:8px; border:1px solid #ccc; margin:5px 0; }
+    button { background:#6c63ff; color:white; cursor:pointer; border:none; }
+    button:hover { background:#574fd6; }
+    .results-list { display:flex; flex-wrap:wrap; gap:15px; margin-top:15px; }
+    .result-item { width:180px; cursor:pointer; text-align:center; }
+    .result-item img { width:100%; border-radius:8px; }
+    .result-item p { margin:6px 0 0; font-size:14px; }
+    .episode-list { margin-top:10px; }
+    .episode-list button { margin:3px; }
   </style>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </head>
 <body>
-  <h1>AnimeXin Search (Local)</h1>
-  <form method="post">
-    <input type="text" name="query" placeholder="Search anime..." required>
-    <button type="submit">Search</button>
-  </form>
+  <div class="wrap">
 
-  <div class="grid">
-    {% for r in results %}
-    <div class="card">
-      <img src="{{ r.img }}" alt="Poster" class="thumb">
-      <div class="title">{{ r.title }}</div>
-      <div class="actions">
-        <!-- IMPORTANT: route to your Episodes page, not the original site -->
-        <a class="btn" href="/episodes?u={{ r.post_token }}">Episodes</a>
-        <a class="btn" href="{{ r.post_url }}" target="_blank">Original</a>
-      </div>
-    </div>
-    {% endfor %}
+    <!-- SEARCH -->
+    <h2>Search Anime</h2>
+    <form id="searchForm">
+      <input type="text" id="query" name="query" placeholder="Enter anime name or URL" size="50">
+
+      <!-- Server Dropdown -->
+      <select id="server" name="server">
+        <option value="hardsub_en_dm">Hardsub English Dailymotion</option>
+        <option value="hardsub_id_dm">Hardsub Indonesia Dailymotion</option>
+        <option value="hardsub_id_ody">Hardsub Indonesia Odysee</option>
+        <option value="hardsub_en_ody">Hardsub English Odysee</option>
+        <option value="hardsub_id_ok">Hardsub Indonesia Ok.ru</option>
+        <option value="hardsub_en_ok">Hardsub English Ok.ru</option>
+        <option value="hardsub_id_mega">Hardsub Indonesia Mega</option>
+        <option value="hardsub_en_mega">Hardsub English Mega</option>
+        <option value="hardsub_id_rumble">Hardsub Indonesia Rumble</option>
+        <option value="hardsub_en_rumble">Hardsub English Rumble</option>
+        <option value="allsub_dm">All Sub Player Dailymotion</option>
+        <option value="allsub_rumble">All Sub Player Rumble</option>
+        <option value="allsub_dood">All Sub Player Dood</option>
+      </select>
+
+      <!-- Subtitle Language -->
+      <select id="subtitle" name="subtitle">
+        <option value="id">Bahasa Indonesia</option>
+        <option value="en" selected>English</option>
+        <option value="es">Español</option>
+        <option value="pt">Português</option>
+        <option value="it">Italiano</option>
+        <option value="de">Deutsch</option>
+        <option value="tr">Türkçe</option>
+        <option value="pl">Polski</option>
+        <option value="ar">العربية</option>
+        <option value="bn">বাংলা</option>
+        <option value="th">ไทย</option>
+      </select>
+
+      <button type="submit">SEARCH / PROCESS</button>
+    </form>
+
+    <!-- Dynamic Sections -->
+    <section id="results" style="display:none"></section>
+    <section id="episodes" style="display:none"></section>
+    <section id="stream" style="display:none"></section>
+
   </div>
 </body>
 </html>
