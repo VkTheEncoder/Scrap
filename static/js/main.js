@@ -51,7 +51,6 @@ function selectEpisode(anime_id, ep) {
         server: $("#server").val()
     }, function(data) {
         $("#stream").html(data).show();
-    });
     }).fail(function() {
         alert("Error loading stream.");
     });
