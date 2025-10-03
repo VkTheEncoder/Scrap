@@ -47,9 +47,11 @@ function selectEpisode(anime_id, ep) {
     $.post("/stream", {
         anime_id: anime_id,
         episode: ep,
-        subtitle: $("#subtitle").val()
+        subtitle: $("#subtitle").val(),
+        server: $("#server").val()
     }, function(data) {
         $("#stream").html(data).show();
+    });
     }).fail(function() {
         alert("Error loading stream.");
     });
