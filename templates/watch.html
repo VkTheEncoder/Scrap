@@ -31,7 +31,7 @@
         {% for s in subs %}
           <li>
             {{ s.lang }} ({{ s.name }})
-            → <a href="{{ url_for('download_sub', url=s.url) }}">Download SRT</a>
+            → <a href="{{ url_for('download_sub', url=s.token) }}">Download SRT</a>
           </li>
         {% endfor %}
       </ul>
