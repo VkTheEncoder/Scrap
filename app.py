@@ -193,27 +193,32 @@ def download_sub():
     if not url:
         return "No URL provided", 400
 
-    # 🔹 Step 1: If it's a whole EXT-X-MEDIA line, extract the URI inside quotes
+    # 🔹 If we get a metadata line (#EXT...), try to extract real URI inside
     if url.startswith("#EXT"):
         match = re.search(r'URI="([^"]+)"', url)
         if match:
             url = match.group(1)
+        else:
+            return "No valid URI found in line", 400
 
     try:
-        # 🔹 Step 2: If it's a .m3u8 again, parse to get real .vtt file
+        # 🔹 If still a .m3u8, parse it and skip metadata
         if url.endswith(".m3u8"):
             r = requests.get(url, timeout=20)
             lines = r.text.splitlines()
+
+            # Look for real .vtt link
             for line in lines:
-                if line.strip().endswith(".vtt"):
-                    url = line.strip()
+                line = line.strip()
+                if line and not line.startswith("#") and line.endswith(".vtt"):
+                    url = line
                     break
 
-        # 🔹 Step 3: Download final VTT
+        # 🔹 Download final subtitle file
         r = requests.get(url, timeout=20)
         vtt_text = r.text
 
-        # 🔹 Step 4: Convert to SRT
+        # 🔹 Convert to SRT
         srt_text = vtt_to_srt(vtt_text)
 
         return Response(
@@ -223,6 +228,7 @@ def download_sub():
         )
     except Exception as e:
         return f"Error: {e}", 500
+
 
 if __name__ == "__main__":
     # local run
