@@ -101,7 +101,7 @@ def stream():
     token = request.form.get("anime_id", "")
     ep = request.form.get("episode", "")
     subtitle = request.form.get("subtitle", "")
-    server_choice = request.form.get("server", "").strip()  # 👈 new
+    server_choice = request.form.get("server", "").strip()
 
     url = b64d(token) if token else ""
     stream_link, subs = "", {}
@@ -110,27 +110,29 @@ def stream():
         r = requests.get(url, headers=HEADERS, timeout=30)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # look through all mirror <select> options
+        # Loop through all available servers
         for option in soup.select("select.mirror option"):
             label = option.get_text(strip=True)
             encoded = option.get("value", "")
             if not encoded:
                 continue
+
             try:
                 decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
                 inner = BeautifulSoup(decoded_html, "html.parser")
                 iframe = inner.find("iframe")
                 src = iframe.get("src") if iframe else None
 
-                # check if this option matches the selected server
-                if src and server_choice and server_choice.lower() in label.lower():
+                # Match server
+                if src and (server_choice.lower() in label.lower()):
                     stream_link = src
-                    # extract subs if it's an m3u8
+                    # Extract subtitles if it's m3u8
                     if "m3u8" in src:
                         subs = {s["lang"]: s["url"] for s in extract_subs_from_m3u8(src)}
                     break
 
-            except Exception:
+            except Exception as e:
+                print("Error decoding option:", e)
                 continue
 
     sub_file = subs.get(subtitle)
