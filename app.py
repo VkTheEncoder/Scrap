@@ -191,19 +191,38 @@ def vtt_to_srt(vtt_text: str) -> str:
 def download_sub():
     url = request.args.get("url")
     if not url:
-        return "No subtitle url", 400
+        return "No URL provided", 400
 
-    r = requests.get(url, timeout=20)
-    vtt_text = r.text
+    # 🔹 Step 1: If it's a whole EXT-X-MEDIA line, extract the URI inside quotes
+    if url.startswith("#EXT"):
+        match = re.search(r'URI="([^"]+)"', url)
+        if match:
+            url = match.group(1)
 
-    # Convert to SRT
-    srt_text = vtt_to_srt(vtt_text)
+    try:
+        # 🔹 Step 2: If it's a .m3u8 again, parse to get real .vtt file
+        if url.endswith(".m3u8"):
+            r = requests.get(url, timeout=20)
+            lines = r.text.splitlines()
+            for line in lines:
+                if line.strip().endswith(".vtt"):
+                    url = line.strip()
+                    break
 
-    return app.response_class(
-        srt_text,
-        mimetype="text/srt",
-        headers={"Content-Disposition": "attachment;filename=subtitle.srt"}
-    )
+        # 🔹 Step 3: Download final VTT
+        r = requests.get(url, timeout=20)
+        vtt_text = r.text
+
+        # 🔹 Step 4: Convert to SRT
+        srt_text = vtt_to_srt(vtt_text)
+
+        return Response(
+            srt_text,
+            mimetype="text/plain",
+            headers={"Content-Disposition": "attachment;filename=subtitle.srt"}
+        )
+    except Exception as e:
+        return f"Error: {e}", 500
 
 if __name__ == "__main__":
     # local run
