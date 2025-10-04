@@ -3,8 +3,7 @@ from flask import Flask, render_template, request, Response
 import requests
 from bs4 import BeautifulSoup
 import re, json
-import m3u8
-from urllib.parse import urljoin, unquote
+from urllib.parse import urljoin
 
 app = Flask(__name__)
 
@@ -17,8 +16,9 @@ def b64e(s: str) -> str:
 def b64d(s: str) -> str:
     return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8")
 
+
 # -------------------------------
-# HOME PAGE (just renders index)
+# HOME PAGE
 # -------------------------------
 @app.route("/", methods=["GET"])
 def home():
@@ -31,10 +31,8 @@ def home():
 @app.route("/search", methods=["POST"])
 def search():
     query = request.form.get("query", "").strip()
-    server = request.form.get("server", "").strip()
-    subtitle = request.form.get("subtitle", "").strip()
-
     results = []
+
     if query:
         search_url = f"{BASE_URL}/?s={query}"
         r = requests.get(search_url, headers=HEADERS, timeout=30)
@@ -123,10 +121,10 @@ def stream():
                 iframe = inner.find("iframe")
                 src = iframe.get("src") if iframe else None
 
-                # Match server
+                # Match server choice
                 if src and (server_choice.lower() in label.lower()):
                     stream_link = src
-                    # Extract subtitles if it's m3u8
+                    # Extract subs if it's m3u8
                     if "m3u8" in src:
                         subs = {s["lang"]: s["url"] for s in extract_subs_from_m3u8(src)}
                     break
@@ -135,8 +133,22 @@ def stream():
                 print("Error decoding option:", e)
                 continue
 
+        # fallback if no match
+        if not stream_link:
+            for option in soup.select("select.mirror option"):
+                encoded = option.get("value", "")
+                if not encoded:
+                    continue
+                decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
+                inner = BeautifulSoup(decoded_html, "html.parser")
+                iframe = inner.find("iframe")
+                if iframe and iframe.has_attr("src"):
+                    stream_link = iframe["src"]
+                    break
+
     sub_file = subs.get(subtitle)
     return render_template("partials/stream.html", link=stream_link, sub=sub_file, ep=ep)
+
 
 # -------------------------------
 # SUBTITLE EXTRACTOR
