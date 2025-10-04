@@ -177,28 +177,34 @@ def stream():
             vid_id = picked_src.split("/embed/video/")[-1].split("?")[0]
             meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
             meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
-
-            # find the x-mpegURL entry
+        
             if "qualities" in meta:
                 for q, streams in meta["qualities"].items():
                     for st in streams:
                         if st.get("type") == "application/x-mpegURL":
                             master_url = st["url"]
-                            # Step 1: fetch the master .m3u8
+        
+                            # Step 1: fetch master m3u8
                             m3u8_text = requests.get(master_url, headers=HEADERS, timeout=20).text
-            
-                            # Step 2: find the first child manifest (real vod*.dmcdn.net)
-                            real_url = None
+        
+                            # Step 2: parse all variants and pick highest bandwidth
+                            best_url, best_bw = None, 0
+                            last_bw = 0
                             for line in m3u8_text.splitlines():
-                                line = line.strip()
-                                if line and not line.startswith("#") and "dmcdn.net" in line:
-                                    real_url = urljoin(master_url, line)
-                                    break
-            
-                            # fallback: keep the master if no child found
-                            stream_link = real_url or master_url
-            
-                            # Step 3: collect subs from master
+                                if line.startswith("#EXT-X-STREAM-INF"):
+                                    # parse BANDWIDTH value
+                                    match = re.search(r"BANDWIDTH=(\d+)", line)
+                                    if match:
+                                        last_bw = int(match.group(1))
+                                elif line and not line.startswith("#") and "dmcdn.net" in line:
+                                    if last_bw > best_bw:
+                                        best_bw = last_bw
+                                        best_url = urljoin(master_url, line)
+        
+                            # Step 3: set final link
+                            stream_link = best_url or master_url
+        
+                            # Step 4: extract subtitles from master
                             subs = extract_subs_from_m3u8(master_url)
                             subs_map = {s["lang"].lower(): s["url"] for s in subs}
                             break
