@@ -25,48 +25,18 @@
 
     <!-- SEARCH -->
     <h2>Search Anime</h2>
-    <form id="searchForm" onsubmit="return false;">
-      <input type="text" id="query" name="query" placeholder="Enter anime name or URL" size="50" required>
-
-      <!-- Server Dropdown -->
-      <select id="server" name="server">
-        <option value="Hardsub English Dailymotion">Hardsub English Dailymotion</option>
-        <option value="Hardsub Indonesia Dailymotion">Hardsub Indonesia Dailymotion</option>
-        <option value="Hardsub English Odysee">Hardsub English Odysee</option>
-        <option value="Hardsub Indonesia Odysee">Hardsub Indonesia Odysee</option>
-        <option value="Hardsub English Ok.ru">Hardsub English Ok.ru</option>
-        <option value="Hardsub Indonesia Ok.ru">Hardsub Indonesia Ok.ru</option>
-        <option value="Hardsub English Mega">Hardsub English Mega</option>
-        <option value="Hardsub Indonesia Mega">Hardsub Indonesia Mega</option>
-        <option value="Hardsub English Rumble">Hardsub English Rumble</option>
-        <option value="Hardsub Indonesia Rumble">Hardsub Indonesia Rumble</option>
-        <option value="All Sub Player Dailymotion">All Sub Player Dailymotion</option>
-        <option value="All Sub Player Rumble">All Sub Player Rumble</option>
-        <option value="All Sub Player Dood">All Sub Player Dood</option>
-      </select>
-
-      <!-- Subtitle Language -->
-      <select id="subtitle" name="subtitle">
-        <option value="id">Bahasa Indonesia</option>
-        <option value="en" selected>English</option>
-        <option value="es">Español</option>
-        <option value="pt">Português</option>
-        <option value="it">Italiano</option>
-        <option value="de">Deutsch</option>
-        <option value="tr">Türkçe</option>
-        <option value="pl">Polski</option>
-        <option value="ar">العربية</option>
-        <option value="bn">বাংলা</option>
-        <option value="th">ไทย</option>
-      </select>
-
-      <button type="submit">SEARCH / PROCESS</button>
+    <form id="searchForm">
+      <input type="text" id="query" name="query" placeholder="Enter anime name or URL" size="50">
+      <button type="submit">SEARCH</button>
     </form>
-
+    
     <!-- Dynamic Sections -->
     <section id="results" style="display:none"></section>
     <section id="episodes" style="display:none"></section>
+    <section id="serverSelection" style="display:none"></section>
+    <section id="subtitleSelection" style="display:none"></section>
     <section id="stream" style="display:none"></section>
+
 
   </div>
 </body>
