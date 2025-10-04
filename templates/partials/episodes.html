@@ -1,15 +1,22 @@
 <h2>{{ title }}</h2>
 <p>Found {{ eps|length }} episodes available.</p>
 
+<!-- Direct number -> resolves to token on the client -->
 <div>
   <input type="number" id="ep_number" placeholder="Enter episode number (1-{{ eps|length }})">
-  <button onclick="selectEpisode($('#ep_number').val())">Process Selected</button>
+  <button onclick="processEpisodeByNumber()">Process Selected</button>
 </div>
 
+<!-- Buttons for all episodes -->
 <div class="episode-list">
   {% if eps %}
     {% for ep in eps %}
-      <button onclick="selectEpisode('{{ ep.episode_token }}')">
+      <!-- keep both the visible text and the data attrs so we can resolve # -> token -->
+      <button
+        class="ep-btn"
+        data-num="{{ ep.num }}"
+        data-token="{{ ep.episode_token }}"
+        onclick="selectEpisode('{{ ep.episode_token }}')">
         Ep {{ ep.num }} - {{ ep.title }}
       </button>
     {% endfor %}
@@ -17,3 +24,14 @@
     <p>No episodes found for this anime.</p>
   {% endif %}
 </div>
+
+<script>
+  // Find the token for an entered episode number and forward it to selectEpisode()
+  function processEpisodeByNumber() {
+    const n = document.getElementById('ep_number').value;
+    if (!n) { alert('Enter an episode number'); return; }
+    const btn = document.querySelector(`.ep-btn[data-num="${n}"]`);
+    if (!btn) { alert('Invalid episode number'); return; }
+    selectEpisode(btn.dataset.token);
+  }
+</script>
