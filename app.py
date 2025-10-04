@@ -87,6 +87,29 @@ def episodes():
 
     return render_template("partials/episodes.html", eps=episodes, anime_id=token, title=title)
 
+
+@app.route("/process_all", methods=["POST"])
+def process_all():
+    token = request.form.get("anime_id", "")
+    url = b64d(token) if token else ""
+    if not url:
+        return "Invalid anime ID"
+
+    # fetch episodes
+    r = requests.get(url, headers=HEADERS, timeout=30)
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    episodes = []
+    for li in soup.select(".eplister ul li"):
+        a = li.select_one("a")
+        num = li.select_one(".epl-num")
+        if a and a.has_attr("href"):
+            episodes.append({"num": num.get_text(strip=True) if num else "?", "url": a["href"]})
+
+    # render all episode links
+    return render_template("partials/all_streams.html", eps=episodes)
+
+
 # -------------------------------
 # GET AVAILABLE SERVERS FOR EPISODE
 # -------------------------------
