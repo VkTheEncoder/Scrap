@@ -27,11 +27,12 @@ $(document).ready(function () {
 // ===============================
 function selectAnime(id) {
   console.log("Anime selected:", id);
-  $("#results").hide(); // hide results list
-  $.post("/episodes", { anime_id: id }, function (data) {
+  $("#results").hide();  // 🔹 Hide search results when an anime is selected
+
+  $.post("/episodes", { anime_id: id }, function(data) {
     $("#episodes").html(data).show();
-    $("#serverSelection, #subtitleSelection, #stream").hide();
-  }).fail(function () {
+    $("#stream").hide();
+  }).fail(function() {
     alert("Error loading episodes.");
   });
 }
