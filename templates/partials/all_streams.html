@@ -1,0 +1,35 @@
+<div style="padding:20px;">
+  <h2 style="margin-bottom:10px;">Episode {{ ep if ep else '?' }}</h2>
+
+  {% if link %}
+    <p><strong>Stream Link:</strong></p>
+    <div style="margin-bottom:15px;">
+      <a href="{{ link }}" target="_blank" style="
+        color:#6c63ff;
+        word-break:break-all;
+        text-decoration:none;
+      ">{{ link }}</a>
+    </div>
+  {% else %}
+    <p>No stream link found.</p>
+  {% endif %}
+
+  {% if sub %}
+    <h3>Subtitle File</h3>
+    <div style="margin-top:10px;">
+      <a href="{{ url_for('download_sub', url=sub) }}" target="_blank" style="
+        display:inline-block;
+        padding:10px 16px;
+        background:#6c63ff;
+        color:white;
+        border-radius:6px;
+        text-decoration:none;
+        font-weight:500;
+        transition:background 0.3s ease;">
+        ⬇ Download Subtitle (SRT)
+      </a>
+    </div>
+  {% else %}
+    <p>No subtitle available for the selected language.</p>
+  {% endif %}
+</div>
