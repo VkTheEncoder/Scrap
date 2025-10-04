@@ -1,18 +1,43 @@
 <h2>Episode {{ ep }}</h2>
 
-<p><strong>Stream Link:</strong></p>
 {% if link %}
-  <a href="{{ link }}" target="_blank">{{ link }}</a>
-  <div style="margin-top:10px;">
-    <iframe src="{{ link }}" width="640" height="360" frameborder="0" allowfullscreen></iframe>
-  </div>
+  <p><strong>Stream Link:</strong> 
+    <a href="{{ link }}" target="_blank">{{ link }}</a>
+  </p>
+
+  <!-- Video Player -->
+  <video id="videoPlayer" width="640" height="360" controls></video>
+
+  <!-- Include hls.js for cross-browser HLS playback -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      const video = document.getElementById("videoPlayer");
+      const src = "{{ link }}";
+
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        console.log("HLS.js initialized ✅");
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari / native support
+        video.src = src;
+      } else {
+        // fallback link if neither works
+        document.body.insertAdjacentHTML('beforeend', 
+          `<p style="color:red;">⚠️ Your browser doesn't support HLS. Please open the link in VLC or a supported player.</p>`
+        );
+      }
+    });
+  </script>
 {% else %}
   <p>No stream link found.</p>
 {% endif %}
 
 {% if sub %}
   <h3>Subtitle File</h3>
-  <a href="{{ url_for('download_sub', url=sub) }}" target="_blank">Download Subtitle</a>
+  <a href="{{ url_for('download_sub', url=sub) }}" target="_blank">Download Subtitle (SRT)</a>
 {% else %}
   <p>No subtitle available for the selected language.</p>
 {% endif %}
