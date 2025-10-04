@@ -2,42 +2,34 @@
 
 {% if link %}
   <p><strong>Stream Link:</strong> 
-    <a href="{{ link }}" target="_blank">{{ link }}</a>
+    <a href="{{ link }}" target="_blank" style="color:#0077cc;">{{ link }}</a>
   </p>
-
-  <!-- Video Player -->
-  <video id="videoPlayer" width="640" height="360" controls></video>
-
-  <!-- Include hls.js for cross-browser HLS playback -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", function() {
-      const video = document.getElementById("videoPlayer");
-      const src = "{{ link }}";
-
-      if (Hls.isSupported()) {
-        const hls = new Hls();
-        hls.loadSource(src);
-        hls.attachMedia(video);
-        console.log("HLS.js initialized ✅");
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari / native support
-        video.src = src;
-      } else {
-        // fallback link if neither works
-        document.body.insertAdjacentHTML('beforeend', 
-          `<p style="color:red;">⚠️ Your browser doesn't support HLS. Please open the link in VLC or a supported player.</p>`
-        );
-      }
-    });
-  </script>
 {% else %}
   <p>No stream link found.</p>
 {% endif %}
 
 {% if sub %}
-  <h3>Subtitle File</h3>
-  <a href="{{ url_for('download_sub', url=sub) }}" target="_blank">Download Subtitle (SRT)</a>
+  <div style="margin-top:15px;">
+    <h3 style="margin-bottom:8px;">Subtitle File</h3>
+    <a 
+      href="{{ url_for('download_sub', url=sub) }}" 
+      target="_blank"
+      style="
+        display:inline-block;
+        background:#6c63ff;
+        color:#fff;
+        padding:10px 18px;
+        text-decoration:none;
+        border-radius:8px;
+        font-size:15px;
+        font-weight:500;
+        transition:all 0.2s ease;
+      "
+      onmouseover="this.style.background='#574fd6'"
+      onmouseout="this.style.background='#6c63ff'">
+      ⬇️ Download Subtitle (SRT)
+    </a>
+  </div>
 {% else %}
   <p>No subtitle available for the selected language.</p>
 {% endif %}
