@@ -42,16 +42,23 @@ function selectAnime(id) {
 // ===============================
 function selectEpisode(ep_token) {
   if (!ep_token) {
-    alert("Invalid episode token.");
+    alert("Please choose an episode.");
     return;
   }
+
   console.log("Episode selected:", ep_token);
 
-  $.post("/get_servers", { episode_token: ep_token }, function (data) {
-    $("#serverSelection").html(data).show();
-    $("#subtitleSelection, #stream").hide();
+  $.post("/stream", {
+    episode_token: ep_token,
+  }, function (data) {
+    $("#stream").html(data).show();
+
+    // ✅ Auto-scroll smoothly to the stream section
+    $("html, body").animate({
+      scrollTop: $("#stream").offset().top - 20
+    }, 600);
   }).fail(function () {
-    alert("Error loading available servers.");
+    alert("Error loading stream.");
   });
 }
 
