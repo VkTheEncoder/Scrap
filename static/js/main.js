@@ -37,16 +37,16 @@ function selectAnime(id) {
 // ===============================
 // Select Episode -> Load Stream
 // ===============================
-function selectEpisode(anime_id, ep) {
-    if (!ep) {
+// now we send episode_token instead of anime_id
+function selectEpisode(ep_token) {
+    if (!ep_token) {
         alert("Please enter/select an episode.");
         return;
     }
-    console.log("Episode selected:", ep);
+    console.log("Episode selected:", ep_token);
 
     $.post("/stream", {
-        anime_id: anime_id,
-        episode: ep,
+        episode_token: ep_token,
         subtitle: $("#subtitle").val(),
         server: $("#server").val()
     }, function(data) {
