@@ -183,13 +183,24 @@ def stream():
                 for q, streams in meta["qualities"].items():
                     for st in streams:
                         if st.get("type") == "application/x-mpegURL":
-                            m3u8_url = st["url"]
-                            stream_link = m3u8_url
-                            # collect subs from master m3u8
-                            subs = extract_subs_from_m3u8(m3u8_url)
-                            # build lookup by lang
-                            for s in subs:
-                                subs_map[s["lang"].lower()] = s["url"]
+                            master_url = st["url"]
+                            # Step 1: fetch the master .m3u8
+                            m3u8_text = requests.get(master_url, headers=HEADERS, timeout=20).text
+            
+                            # Step 2: find the first child manifest (real vod*.dmcdn.net)
+                            real_url = None
+                            for line in m3u8_text.splitlines():
+                                line = line.strip()
+                                if line and not line.startswith("#") and "dmcdn.net" in line:
+                                    real_url = urljoin(master_url, line)
+                                    break
+            
+                            # fallback: keep the master if no child found
+                            stream_link = real_url or master_url
+            
+                            # Step 3: collect subs from master
+                            subs = extract_subs_from_m3u8(master_url)
+                            subs_map = {s["lang"].lower(): s["url"] for s in subs}
                             break
                     if stream_link:
                         break
