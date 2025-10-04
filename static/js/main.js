@@ -86,3 +86,16 @@ function selectSubtitle(ep_token, server_value, sub_value) {
     alert("Error loading stream.");
   });
 }
+
+
+
+function processAllEpisodes(anime_id) {
+  console.log("Processing all episodes:", anime_id);
+  $.post("/process_all", { anime_id: anime_id }, function (data) {
+    $("#stream").html(data).show();
+    $("#results, #episodes").hide();
+  }).fail(function () {
+    alert("Error processing all episodes.");
+  });
+}
+
