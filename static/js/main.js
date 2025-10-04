@@ -27,6 +27,7 @@ $(document).ready(function () {
 // ===============================
 function selectAnime(id) {
   console.log("Anime selected:", id);
+  $("#results").hide(); // hide results list
   $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data).show();
     $("#serverSelection, #subtitleSelection, #stream").hide();
