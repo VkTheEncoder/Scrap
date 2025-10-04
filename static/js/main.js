@@ -1,46 +1,88 @@
 console.log("main.js loaded ✅");
 
-$(document).ready(function() {
-  $("#searchForm").on("submit", function(e) {
+$(document).ready(function () {
+  // ===============================
+  // Handle Search Form Submit
+  // ===============================
+  $("#searchForm").on("submit", function (e) {
     e.preventDefault();
-    console.log("Search form submitted via AJAX ✅");
+    const query = $("#query").val().trim();
+    if (!query) {
+      alert("Please enter anime name.");
+      return;
+    }
 
-    $.post("/search", {
-      query: $("#query").val(),
-      server: $("#server").val(),
-      subtitle: $("#subtitle").val()
-    }, function(data) {
+    console.log("Searching for:", query);
+    $.post("/search", { query: query }, function (data) {
       $("#results").html(data).show();
-      $("#episodes, #stream").hide();
-    }).fail(function() {
+      $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
+    }).fail(function () {
       alert("Error while searching. Please try again.");
     });
   });
 });
 
-// Anime card -> load episodes
+// ===============================
+// When user selects an anime → load episodes
+// ===============================
 function selectAnime(id) {
   console.log("Anime selected:", id);
-  $.post("/episodes", { anime_id: id }, function(data) {
+  $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data).show();
-    $("#stream").hide();
-  }).fail(function() {
+    $("#serverSelection, #subtitleSelection, #stream").hide();
+  }).fail(function () {
     alert("Error loading episodes.");
   });
 }
 
-// Episode -> load stream (IMPORTANT: now expects an EPISODE TOKEN)
+// ===============================
+// When user selects an episode → load available servers
+// ===============================
 function selectEpisode(ep_token) {
-  if (!ep_token) { alert("Please choose an episode."); return; }
+  if (!ep_token) {
+    alert("Invalid episode token.");
+    return;
+  }
   console.log("Episode selected:", ep_token);
 
+  $.post("/get_servers", { episode_token: ep_token }, function (data) {
+    $("#serverSelection").html(data).show();
+    $("#subtitleSelection, #stream").hide();
+  }).fail(function () {
+    alert("Error loading available servers.");
+  });
+}
+
+// ===============================
+// When user selects a server → load available subtitles
+// ===============================
+function selectServer(ep_token, server_value) {
+  console.log("Server selected for:", ep_token);
+
+  $.post("/get_subtitles", {
+    episode_token: ep_token,
+    server: server_value
+  }, function (data) {
+    $("#subtitleSelection").html(data).show();
+    $("#stream").hide();
+  }).fail(function () {
+    alert("Error loading subtitles.");
+  });
+}
+
+// ===============================
+// When user selects subtitle → load stream player
+// ===============================
+function selectSubtitle(ep_token, server_value, sub_value) {
+  console.log("Subtitle selected:", sub_value);
+
   $.post("/stream", {
-    episode_token: ep_token,                  // <- token of the episode page
-    subtitle: $("#subtitle").val(),
-    server: $("#server").val()
-  }, function(data) {
+    episode_token: ep_token,
+    server: server_value,
+    subtitle: sub_value
+  }, function (data) {
     $("#stream").html(data).show();
-  }).fail(function() {
+  }).fail(function () {
     alert("Error loading stream.");
   });
 }
