@@ -1,7 +1,7 @@
 <h2>{{ title }}</h2>
 <p>Found {{ eps|length }} episodes available.</p>
 
-<!-- Input for one specific episode -->
+<!-- Select specific episode -->
 <div style="margin-top:10px;">
   <input 
     type="number" 
@@ -18,70 +18,43 @@
   </button>
 </div>
 
-<!-- Single Button to Process All -->
-<div style="margin-top:25px;">
-  <button 
-    onclick="processAllEpisodes()" 
-    style="
-      padding:12px 20px;
-      background:#6c63ff;
-      color:white;
-      border:none;
-      border-radius:8px;
-      cursor:pointer;
-      font-size:15px;
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-    "
-    onmouseover="this.style.background='#574fd6'"
-    onmouseout="this.style.background='#6c63ff'">
-    ▶ Process All Episodes
-  </button>
-  <p style="margin-top:8px; color:#555;">This will process all episodes automatically, one by one.</p>
+<!-- Episode list -->
+<div class="episode-list" style="margin-top:20px;">
+  {% if eps %}
+    {% for ep in eps %}
+      <button
+        class="ep-btn"
+        data-num="{{ ep.num }}"
+        data-token="{{ ep.episode_token }}"
+        onclick="selectEpisode('{{ ep.episode_token }}')"
+        style="
+          display:inline-block;
+          margin:5px;
+          padding:10px 15px;
+          background:#6c63ff;
+          color:white;
+          border:none;
+          border-radius:8px;
+          cursor:pointer;
+          font-size:14px;
+        "
+        onmouseover="this.style.background='#574fd6'"
+        onmouseout="this.style.background='#6c63ff'">
+        Ep {{ ep.num }} - {{ ep.title }}
+      </button>
+    {% endfor %}
+  {% else %}
+    <p>No episodes found for this anime.</p>
+  {% endif %}
 </div>
 
-<!-- Hidden Episode Data -->
-{% if eps %}
-  <div id="episodeData" style="display:none;">
-    {% for ep in eps %}
-      <span class="ep-btn" data-num="{{ ep.num }}" data-token="{{ ep.episode_token }}"></span>
-    {% endfor %}
-  </div>
-{% endif %}
-
 <script>
-  // Process by episode number
+  // Find token by episode number and forward to selectEpisode()
   function processEpisodeByNumber() {
     const n = document.getElementById('ep_number').value;
     if (!n) { alert('Enter an episode number'); return; }
     const btn = document.querySelector(`.ep-btn[data-num="${n}"]`);
     if (!btn) { alert('Invalid episode number'); return; }
     selectEpisode(btn.dataset.token);
-  }
-
-  // Process all episodes sequentially
-  async function processAllEpisodes() {
-    const episodes = Array.from(document.querySelectorAll('.ep-btn'));
-    if (!episodes.length) {
-      alert("No episodes found!");
-      return;
-    }
-
-    for (let i = 0; i < episodes.length; i++) {
-      const token = episodes[i].dataset.token;
-      console.log(`Processing episode ${i+1}/${episodes.length}...`);
-      await new Promise((resolve) => {
-        $.post("/stream", { episode_token: token }, function(data) {
-          $("#stream").html(data).show();
-          setTimeout(resolve, 2000); // wait 2 sec between each
-        }).fail(() => {
-          console.error("Error loading episode:", i + 1);
-          resolve();
-        });
-      });
-    }
-
-    alert("✅ Finished processing all episodes!");
   }
 </script>
