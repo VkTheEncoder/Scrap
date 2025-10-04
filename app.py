@@ -96,8 +96,7 @@ def episodes():
 # -------------------------------
 @app.route("/stream", methods=["POST"])
 def stream():
-    token = request.form.get("anime_id", "")
-    ep = request.form.get("episode", "")
+    token = request.form.get("episode_token", "")
     subtitle = request.form.get("subtitle", "")
     server_choice = request.form.get("server", "").strip()
 
@@ -123,11 +122,10 @@ def stream():
                 if not src:
                     continue
 
-                # Only pick the selected server if user chose one
-                if server_choice and server_choice.lower() not in label.lower():
+                # Server filter: loosened to partial match
+                if server_choice and server_choice.lower() not in label.lower().replace(" ", ""):
                     continue
 
-                # Special handling for Dailymotion
                 if "dailymotion.com/embed/video/" in src:
                     vid_id = src.split("/embed/video/")[-1].split("?")[0]
                     meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
@@ -141,9 +139,7 @@ def stream():
                                     stream_link = m3u8_url
                                     subs = {s["lang"]: s["url"] for s in extract_subs_from_m3u8(m3u8_url)}
                                     break
-
                 else:
-                    # Non-dailymotion: just take iframe src
                     stream_link = src
 
                 if stream_link:
@@ -154,7 +150,8 @@ def stream():
                 continue
 
     sub_file = subs.get(subtitle)
-    return render_template("partials/stream.html", link=stream_link, sub=sub_file, ep=ep)
+    return render_template("partials/stream.html", link=stream_link, sub=sub_file)
+
 
 
 # -------------------------------
