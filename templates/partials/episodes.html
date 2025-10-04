@@ -13,7 +13,7 @@
 <div class="episode-list">
   {% if eps %}
     {% for ep in eps %}
-      <button onclick="selectEpisode('{{ ep.episode_token }}', '{{ ep.num }}')">
+      <button onclick="selectEpisode('{{ anime_id }}', '{{ ep.num }}')">
         Ep {{ ep.num }} - {{ ep.title }}
       </button>
     {% endfor %}
