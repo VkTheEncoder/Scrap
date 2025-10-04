@@ -96,61 +96,123 @@ def episodes():
 # -------------------------------
 @app.route("/stream", methods=["POST"])
 def stream():
-    token = request.form.get("episode_token", "")
-    subtitle = request.form.get("subtitle", "")
-    server_choice = request.form.get("server", "").strip()
+    # we now receive EPISODE TOKEN, not anime id
+    token = request.form.get("episode_token", "").strip()
+    subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
+    server_choice_raw = (request.form.get("server", "") or "").strip()
+
+    def norm(s: str) -> str:
+        # normalize for robust comparisons
+        return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+    server_choice = norm(server_choice_raw)
+    stream_link = ""
+    subs_map = {}
 
     url = b64d(token) if token else ""
-    stream_link, subs = "", {}
+    if not url:
+        return render_template("partials/stream.html", link="", sub=None)
 
-    if url:
-        r = requests.get(url, headers=HEADERS, timeout=30)
-        soup = BeautifulSoup(r.text, "html.parser")
+    r = requests.get(url, headers=HEADERS, timeout=30)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-        for option in soup.select("select.mirror option"):
-            label = option.get_text(strip=True)
-            encoded = option.get("value", "")
-            if not encoded:
+    mirrors = soup.select("select.mirror option")
+    if not mirrors:
+        # no <select class="mirror"> found on this episode page
+        return render_template("partials/stream.html", link="", sub=None)
+
+    picked_src = None
+    picked_label = None
+
+    # 1st pass: try to match user's chosen server (normalized)
+    for opt in mirrors:
+        label = opt.get_text(strip=True)
+        encoded = opt.get("value", "")
+        if not encoded:
+            continue
+
+        try:
+            decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
+            inner = BeautifulSoup(decoded_html, "html.parser")
+            iframe = inner.find("iframe")
+            src = iframe.get("src") or iframe.get("data-src") if iframe else None
+            if not src:
                 continue
 
+            if server_choice and server_choice not in norm(label):
+                continue  # this mirror doesn't match the chosen server
+
+            picked_src = src
+            picked_label = label
+            break
+        except Exception as e:
+            print("Mirror decode error:", e)
+            continue
+
+    # 2nd pass (fallback): first working mirror if none matched
+    if not picked_src:
+        for opt in mirrors:
+            encoded = opt.get("value", "")
+            if not encoded:
+                continue
             try:
                 decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
                 inner = BeautifulSoup(decoded_html, "html.parser")
                 iframe = inner.find("iframe")
-                src = iframe.get("src") if iframe else None
-
-                if not src:
-                    continue
-
-                # Server filter: loosened to partial match
-                if server_choice and server_choice.lower() not in label.lower().replace(" ", ""):
-                    continue
-
-                if "dailymotion.com/embed/video/" in src:
-                    vid_id = src.split("/embed/video/")[-1].split("?")[0]
-                    meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-                    meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
-
-                    if "qualities" in meta:
-                        for q, streams in meta["qualities"].items():
-                            for stream in streams:
-                                if stream.get("type") == "application/x-mpegURL":
-                                    m3u8_url = stream["url"]
-                                    stream_link = m3u8_url
-                                    subs = {s["lang"]: s["url"] for s in extract_subs_from_m3u8(m3u8_url)}
-                                    break
-                else:
-                    stream_link = src
-
-                if stream_link:
+                src = iframe.get("src") or iframe.get("data-src") if iframe else None
+                if src:
+                    picked_src = src
+                    picked_label = opt.get_text(strip=True)
                     break
-
-            except Exception as e:
-                print("Error decoding option:", e)
+            except Exception:
                 continue
 
-    sub_file = subs.get(subtitle)
-    return render_template("partials/stream.html", link=stream_link, sub=sub_file)
+    if not picked_src:
+        # still nothing
+        return render_template("partials/stream.html", link="", sub=None)
+
+    # If Dailymotion embed -> grab the real m3u8 (and subs) from metadata JSON
+    try:
+        if "dailymotion.com/embed/video/" in picked_src:
+            vid_id = picked_src.split("/embed/video/")[-1].split("?")[0]
+            meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+            meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+
+            # find the x-mpegURL entry
+            if "qualities" in meta:
+                for q, streams in meta["qualities"].items():
+                    for st in streams:
+                        if st.get("type") == "application/x-mpegURL":
+                            m3u8_url = st["url"]
+                            stream_link = m3u8_url
+                            # collect subs from master m3u8
+                            subs = extract_subs_from_m3u8(m3u8_url)
+                            # build lookup by lang
+                            for s in subs:
+                                subs_map[s["lang"].lower()] = s["url"]
+                            break
+                    if stream_link:
+                        break
+        else:
+            # Non-Dailymotion: use the iframe URL directly
+            stream_link = picked_src
+    except Exception as e:
+        print("Dailymotion metadata error:", e)
+
+    # choose subtitle: exact match (e.g., 'it') or prefix of lang (e.g., 'it' matches 'it-IT')
+    chosen_sub = None
+    if subtitle_pref and subs_map:
+        # exact
+        if subtitle_pref in subs_map:
+            chosen_sub = subs_map[subtitle_pref]
+        else:
+            # try prefix match like 'it' in 'it-IT'
+            for lang, tok in subs_map.items():
+                if lang.split("-")[0] == subtitle_pref.split("-")[0]:
+                    chosen_sub = tok
+                    break
+
+    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub)
 
 
 
