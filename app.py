@@ -108,7 +108,6 @@ def stream():
         r = requests.get(url, headers=HEADERS, timeout=30)
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Loop through all available servers
         for option in soup.select("select.mirror option"):
             label = option.get_text(strip=True)
             encoded = option.get("value", "")
@@ -121,30 +120,38 @@ def stream():
                 iframe = inner.find("iframe")
                 src = iframe.get("src") if iframe else None
 
-                # Match server choice
-                if src and (server_choice.lower() in label.lower()):
+                if not src:
+                    continue
+
+                # Only pick the selected server if user chose one
+                if server_choice and server_choice.lower() not in label.lower():
+                    continue
+
+                # Special handling for Dailymotion
+                if "dailymotion.com/embed/video/" in src:
+                    vid_id = src.split("/embed/video/")[-1].split("?")[0]
+                    meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+                    meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+
+                    if "qualities" in meta:
+                        for q, streams in meta["qualities"].items():
+                            for stream in streams:
+                                if stream.get("type") == "application/x-mpegURL":
+                                    m3u8_url = stream["url"]
+                                    stream_link = m3u8_url
+                                    subs = {s["lang"]: s["url"] for s in extract_subs_from_m3u8(m3u8_url)}
+                                    break
+
+                else:
+                    # Non-dailymotion: just take iframe src
                     stream_link = src
-                    # Extract subs if it's m3u8
-                    if "m3u8" in src:
-                        subs = {s["lang"]: s["url"] for s in extract_subs_from_m3u8(src)}
+
+                if stream_link:
                     break
 
             except Exception as e:
                 print("Error decoding option:", e)
                 continue
-
-        # fallback if no match
-        if not stream_link:
-            for option in soup.select("select.mirror option"):
-                encoded = option.get("value", "")
-                if not encoded:
-                    continue
-                decoded_html = base64.b64decode(encoded).decode("utf-8", errors="ignore")
-                inner = BeautifulSoup(decoded_html, "html.parser")
-                iframe = inner.find("iframe")
-                if iframe and iframe.has_attr("src"):
-                    stream_link = iframe["src"]
-                    break
 
     sub_file = subs.get(subtitle)
     return render_template("partials/stream.html", link=stream_link, sub=sub_file, ep=ep)
