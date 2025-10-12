@@ -96,7 +96,6 @@ def process_all():
     if not url:
         return "Invalid anime ID"
 
-    # fetch episodes
     r = requests.get(url, headers=HEADERS, timeout=30)
     soup = BeautifulSoup(r.text, "html.parser")
 
@@ -107,9 +106,7 @@ def process_all():
         if a and a.has_attr("href"):
             episodes.append({"num": num.get_text(strip=True) if num else "?", "url": a["href"]})
 
-    # render all episode links
     return render_template("partials/all_streams.html", eps=episodes)
-
 
 # -------------------------------
 # GET AVAILABLE SERVERS FOR EPISODE
@@ -194,10 +191,7 @@ def stream():
                         if st.get("type") == "application/x-mpegURL":
                             master_url = st["url"]
 
-                            # fetch master .m3u8
                             m3u8_text = requests.get(master_url, headers=HEADERS, timeout=20).text
-
-                            # parse all variants and pick highest bandwidth
                             best_url, best_bw = None, 0
                             last_bw = 0
                             for line in m3u8_text.splitlines():
@@ -212,7 +206,6 @@ def stream():
 
                             stream_link = best_url or master_url
 
-                            # extract subtitles
                             subs = extract_subs_from_m3u8(master_url)
                             subs_map = {s["lang"].lower(): s["url"] for s in subs}
                             break
@@ -246,7 +239,7 @@ def extract_subs_from_m3u8(m3u8_url: str):
 
         for line in text.splitlines():
             if line.startswith("#EXT-X-MEDIA") and "TYPE=SUBTITLES" in line:
-                attrs = dict(re.findall(r'([A-Z0-9\-]+)="(.*?)"', line))
+                attrs = dict(re.findall(r'([A-Z0-9\-]+)=\"(.*?)\"', line))
                 uri = attrs.get("URI")
                 if uri:
                     sub_m3u8 = urljoin(m3u8_url, uri)
@@ -272,8 +265,37 @@ def extract_subs_from_m3u8(m3u8_url: str):
         return []
 
 # -------------------------------
-# DOWNLOAD SUB AS .SRT
+# DOWNLOAD SUB AS .SRT (ROBUST)
 # -------------------------------
+def _fetch_text(scraper, url, headers, timeout=30):
+    r = scraper.get(url, headers=headers, timeout=timeout)
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code} for {url}")
+    txt = r.text or ""
+    if not txt.strip():
+        try:
+            txt = r.content.decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+    return txt
+
+def _concat_vtt_segments(scraper, playlist_url, playlist_text, headers):
+    seg_urls = []
+    for line in playlist_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        seg_urls.append(urljoin(playlist_url, line))
+    if not seg_urls:
+        return ""
+    parts = []
+    for seg in seg_urls:
+        try:
+            parts.append(_fetch_text(scraper, seg, headers))
+        except Exception:
+            continue
+    return "\n".join(parts)
+
 @app.route("/download_sub")
 def download_sub():
     token = request.args.get("url", "").strip()
@@ -286,7 +308,6 @@ def download_sub():
         return "Invalid token", 400
 
     try:
-        # ✅ Use Cloudscraper instead of requests
         scraper = cloudscraper.create_scraper()
         headers = {
             "User-Agent": (
@@ -294,30 +315,44 @@ def download_sub():
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
-            "Referer": "https://animexin.dev/",
+            "Accept": "*/*",
             "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://www.dailymotion.com",
+            "Referer": "https://www.dailymotion.com/",
         }
 
-        # Handle subtitle .m3u8 playlist
-        if url.endswith(".m3u8"):
-            r = scraper.get(url, headers=headers, timeout=30)
-            text = r.text
-            vtt_url = None
-            for line in text.splitlines():
+        vtt_text = ""
+
+        if url.endswith(".vtt") or url.endswith(".webvtt"):
+            vtt_text = _fetch_text(scraper, url, headers)
+
+        elif url.endswith(".m3u8"):
+            playlist_text = _fetch_text(scraper, url, headers)
+            single_vtt = None
+            for line in playlist_text.splitlines():
                 line = line.strip()
-                if line and not line.startswith("#") and ".vtt" in line:
-                    vtt_url = urljoin(url, line)
+                if line and not line.startswith("#") and (".vtt" in line.lower() or ".webvtt" in line.lower()):
+                    single_vtt = urljoin(url, line)
                     break
-            if not vtt_url:
-                return "No VTT URL found inside subtitle m3u8", 404
-            url = vtt_url
 
-        # ✅ Fetch subtitle file (Cloudflare-safe)
-        vtt_resp = scraper.get(url, headers=headers, timeout=30)
-        if vtt_resp.status_code != 200 or len(vtt_resp.text.strip()) < 50:
-            return f"Failed to fetch subtitle (HTTP {vtt_resp.status_code})", 500
+            if single_vtt:
+                vtt_text = _fetch_text(scraper, single_vtt, headers)
+            else:
+                vtt_text = _concat_vtt_segments(scraper, url, playlist_text, headers)
+        else:
+            vtt_text = _fetch_text(scraper, url, headers)
 
-        srt_text = vtt_to_srt(vtt_resp.text)
+        if not vtt_text or len(vtt_text.strip()) < 20:
+            return "Failed to fetch subtitle (empty/blocked). Try another server.", 502
+
+        srt_text = vtt_to_srt(vtt_text)
+
+        if not srt_text.strip():
+            return Response(
+                vtt_text,
+                mimetype="text/vtt",
+                headers={"Content-Disposition": "attachment; filename=subtitle.vtt"}
+            )
 
         return Response(
             srt_text,
