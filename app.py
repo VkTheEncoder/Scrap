@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin
+import cloudscraper
 
 app = Flask(__name__)
 
@@ -285,8 +286,21 @@ def download_sub():
         return "Invalid token", 400
 
     try:
+        # ✅ Use Cloudscraper instead of requests
+        scraper = cloudscraper.create_scraper()
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://animexin.dev/",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+        # Handle subtitle .m3u8 playlist
         if url.endswith(".m3u8"):
-            r = requests.get(url, headers=HEADERS, timeout=20)
+            r = scraper.get(url, headers=headers, timeout=30)
             text = r.text
             vtt_url = None
             for line in text.splitlines():
@@ -298,8 +312,11 @@ def download_sub():
                 return "No VTT URL found inside subtitle m3u8", 404
             url = vtt_url
 
-        vtt_resp = requests.get(url, headers=HEADERS, timeout=20)
-        vtt_resp.raise_for_status()
+        # ✅ Fetch subtitle file (Cloudflare-safe)
+        vtt_resp = scraper.get(url, headers=headers, timeout=30)
+        if vtt_resp.status_code != 200 or len(vtt_resp.text.strip()) < 50:
+            return f"Failed to fetch subtitle (HTTP {vtt_resp.status_code})", 500
+
         srt_text = vtt_to_srt(vtt_resp.text)
 
         return Response(
@@ -307,7 +324,9 @@ def download_sub():
             mimetype="text/plain",
             headers={"Content-Disposition": "attachment; filename=subtitle.srt"}
         )
+
     except Exception as e:
+        print("Subtitle download error:", e)
         return f"Error: {e}", 500
 
 # -------------------------------
