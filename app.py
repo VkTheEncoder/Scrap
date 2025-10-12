@@ -304,48 +304,40 @@ def download_sub():
             "Referer": "https://www.dailymotion.com/",
         }
 
-        vtt_text = ""
+        # Recursive subtitle fetcher
+        def fetch_real_sub(vtt_url, depth=0):
+            """Recursively follow playlists until we reach real subtitle text."""
+            if depth > 3:
+                return ""  # safety limit
 
-        # ---------------- Fix for nested .m3u8 and .vtt ----------------
-        if url.endswith(".m3u8"):
-            playlist_text = _fetch_text(scraper, url, headers)
-            single_vtt = None
-            for line in playlist_text.splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and (".vtt" in line.lower() or ".webvtt" in line.lower()):
-                    single_vtt = urljoin(url, line)
-                    break
+            resp = scraper.get(vtt_url, headers=headers, timeout=20)
+            text = resp.text.strip()
 
-            if single_vtt:
-                sub_resp = _fetch_text(scraper, single_vtt, headers)
-                if "#EXTM3U" in sub_resp and ".vtt" in sub_resp:
-                    inner_vtt = None
-                    for l in sub_resp.splitlines():
-                        l = l.strip()
-                        if l and not l.startswith("#") and ".vtt" in l:
-                            inner_vtt = urljoin(single_vtt, l)
-                            break
-                    if inner_vtt:
-                        vtt_text = _fetch_text(scraper, inner_vtt, headers)
-                    else:
-                        vtt_text = sub_resp
-                else:
-                    vtt_text = sub_resp
-            else:
-                vtt_text = playlist_text
+            # If file is an m3u8 playlist, go deeper
+            if text.startswith("#EXTM3U"):
+                lines = [
+                    urljoin(vtt_url, l.strip())
+                    for l in text.splitlines()
+                    if l.strip() and not l.startswith("#")
+                ]
+                # pick the first .vtt inside or recursively fetch first line
+                for l in lines:
+                    if l.lower().endswith(".vtt") or l.lower().endswith(".webvtt"):
+                        return fetch_real_sub(l, depth + 1)
+                # no direct .vtt, maybe another playlist
+                if lines:
+                    return fetch_real_sub(lines[0], depth + 1)
+                return ""
+            return text
 
-        elif url.endswith(".vtt") or url.endswith(".webvtt"):
-            vtt_text = _fetch_text(scraper, url, headers)
-        else:
-            vtt_text = _fetch_text(scraper, url, headers)
+        # Fetch actual subtitle content (recursively)
+        vtt_text = fetch_real_sub(url)
 
-        # ----------------------------------------------------------------
+        if not vtt_text or len(vtt_text) < 20:
+            return "No valid subtitle content found.", 502
 
-        if not vtt_text or len(vtt_text.strip()) < 20:
-            return "Failed to fetch subtitle (empty/blocked). Try another server.", 502
-
+        # Convert to SRT
         srt_text = vtt_to_srt(vtt_text)
-
         if not srt_text.strip():
             return Response(
                 vtt_text,
