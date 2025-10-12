@@ -326,18 +326,38 @@ def download_sub():
         if url.endswith(".vtt") or url.endswith(".webvtt"):
             vtt_text = _fetch_text(scraper, url, headers)
 
-        elif url.endswith(".m3u8"):
-            playlist_text = _fetch_text(scraper, url, headers)
-            single_vtt = None
-            for line in playlist_text.splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and (".vtt" in line.lower() or ".webvtt" in line.lower()):
-                    single_vtt = urljoin(url, line)
-                    break
+if url.endswith(".m3u8"):
+    playlist_text = _fetch_text(scraper, url, headers)
 
+    # Look for actual .vtt link inside the playlist
+    single_vtt = None
+    for line in playlist_text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and (".vtt" in line.lower() or ".webvtt" in line.lower()):
+            single_vtt = urljoin(url, line)
+            break
+
+            # ✅ If found, follow and fetch it
             if single_vtt:
-                vtt_text = _fetch_text(scraper, single_vtt, headers)
+                # Sometimes that .vtt is itself a mini .m3u8 file
+                sub_resp = _fetch_text(scraper, single_vtt, headers)
+                if "#EXTM3U" in sub_resp and ".vtt" in sub_resp:
+                    # means we got another playlist → fetch real subtitle
+                    inner_vtt = None
+                    for l in sub_resp.splitlines():
+                        l = l.strip()
+                        if l and not l.startswith("#") and ".vtt" in l:
+                            inner_vtt = urljoin(single_vtt, l)
+                            break
+                    if inner_vtt:
+                        vtt_text = _fetch_text(scraper, inner_vtt, headers)
+                    else:
+                        vtt_text = sub_resp
+                else:
+                    vtt_text = sub_resp
+        
             else:
+                # Segmented fallback
                 vtt_text = _concat_vtt_segments(scraper, url, playlist_text, headers)
         else:
             vtt_text = _fetch_text(scraper, url, headers)
