@@ -239,7 +239,7 @@ def extract_subs_from_m3u8(m3u8_url: str):
 
         for line in text.splitlines():
             if line.startswith("#EXT-X-MEDIA") and "TYPE=SUBTITLES" in line:
-                attrs = dict(re.findall(r'([A-Z0-9\-]+)=\"(.*?)\"', line))
+                attrs = dict(re.findall(r'([A-Z0-9\-]+)="(.*?)"', line))
                 uri = attrs.get("URI")
                 if uri:
                     sub_m3u8 = urljoin(m3u8_url, uri)
@@ -265,7 +265,7 @@ def extract_subs_from_m3u8(m3u8_url: str):
         return []
 
 # -------------------------------
-# DOWNLOAD SUB AS .SRT (ROBUST)
+# DOWNLOAD SUB AS .SRT (FIXED)
 # -------------------------------
 def _fetch_text(scraper, url, headers, timeout=30):
     r = scraper.get(url, headers=headers, timeout=timeout)
@@ -278,23 +278,6 @@ def _fetch_text(scraper, url, headers, timeout=30):
         except Exception:
             pass
     return txt
-
-def _concat_vtt_segments(scraper, playlist_url, playlist_text, headers):
-    seg_urls = []
-    for line in playlist_text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        seg_urls.append(urljoin(playlist_url, line))
-    if not seg_urls:
-        return ""
-    parts = []
-    for seg in seg_urls:
-        try:
-            parts.append(_fetch_text(scraper, seg, headers))
-        except Exception:
-            continue
-    return "\n".join(parts)
 
 @app.route("/download_sub")
 def download_sub():
@@ -323,26 +306,19 @@ def download_sub():
 
         vtt_text = ""
 
-        if url.endswith(".vtt") or url.endswith(".webvtt"):
-            vtt_text = _fetch_text(scraper, url, headers)
+        # ---------------- Fix for nested .m3u8 and .vtt ----------------
+        if url.endswith(".m3u8"):
+            playlist_text = _fetch_text(scraper, url, headers)
+            single_vtt = None
+            for line in playlist_text.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and (".vtt" in line.lower() or ".webvtt" in line.lower()):
+                    single_vtt = urljoin(url, line)
+                    break
 
-if url.endswith(".m3u8"):
-    playlist_text = _fetch_text(scraper, url, headers)
-
-    # Look for actual .vtt link inside the playlist
-    single_vtt = None
-    for line in playlist_text.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and (".vtt" in line.lower() or ".webvtt" in line.lower()):
-            single_vtt = urljoin(url, line)
-            break
-
-            # ✅ If found, follow and fetch it
             if single_vtt:
-                # Sometimes that .vtt is itself a mini .m3u8 file
                 sub_resp = _fetch_text(scraper, single_vtt, headers)
                 if "#EXTM3U" in sub_resp and ".vtt" in sub_resp:
-                    # means we got another playlist → fetch real subtitle
                     inner_vtt = None
                     for l in sub_resp.splitlines():
                         l = l.strip()
@@ -355,12 +331,15 @@ if url.endswith(".m3u8"):
                         vtt_text = sub_resp
                 else:
                     vtt_text = sub_resp
-        
             else:
-                # Segmented fallback
-                vtt_text = _concat_vtt_segments(scraper, url, playlist_text, headers)
+                vtt_text = playlist_text
+
+        elif url.endswith(".vtt") or url.endswith(".webvtt"):
+            vtt_text = _fetch_text(scraper, url, headers)
         else:
             vtt_text = _fetch_text(scraper, url, headers)
+
+        # ----------------------------------------------------------------
 
         if not vtt_text or len(vtt_text.strip()) < 20:
             return "Failed to fetch subtitle (empty/blocked). Try another server.", 502
