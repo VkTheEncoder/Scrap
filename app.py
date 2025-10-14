@@ -6,6 +6,7 @@ import re
 from urllib.parse import urljoin
 import cloudscraper
 
+
 app = Flask(__name__)
 
 BASE_URL = "https://animexin.dev"
@@ -55,6 +56,40 @@ def search():
             })
 
     return render_template("partials/results.html", results=results)
+
+
+def resolve_series_url_maybe(url):
+    """
+    If `url` is an episode post (not a /anime/ page),
+    fetch it and try to find the series page link.
+    Returns (series_url or None, soup_of_post)
+    """
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+    except Exception:
+        return (None, None)
+
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # Try several likely places for the series link
+    candidate_selectors = [
+        'div.spe a[href*="/anime/"]',
+        'div.infox a[href*="/anime/"]',
+        'nav.breadcrumb a[href*="/anime/"]',
+        'div.entry-header a[href*="/anime/"]',
+        'div.bixbox a[href*="/anime/"]',
+        'a[href*="/anime/"]',  # last resort (broad)
+    ]
+    for sel in candidate_selectors:
+        a = soup.select_one(sel)
+        if a and a.has_attr("href") and "/anime/" in a["href"]:
+            series_url = a["href"]
+            if series_url.startswith("/"):
+                series_url = urljoin(BASE_URL, series_url)
+            return (series_url, soup)
+
+    return (None, soup)
 
 
 # -------------------------------
