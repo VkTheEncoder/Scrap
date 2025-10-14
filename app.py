@@ -56,6 +56,62 @@ def search():
 
     return render_template("partials/results.html", results=results)
 
+
+# -------------------------------
+# LATEST RELEASE (home cards)
+# -------------------------------
+@app.route("/latest", methods=["GET"])
+def latest():
+    # /latest?page=1 → https://animexin.dev/
+    # /latest?page=2 → https://animexin.dev/page/2/
+    import re
+    page = int((request.args.get("page") or 1))
+    url = BASE_URL if page == 1 else f"{BASE_URL}/page/{page}/"
+
+    r = requests.get(url, headers=HEADERS, timeout=30)
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    results = []
+    # Matches the exact structure you shared
+    for art in soup.select("div.listupd.normal div.excstf article.bs"):
+        a = art.select_one("a[href]")
+        if not a:
+            continue
+        link = a["href"]
+
+        img_el = a.select_one("img")
+        title_el = a.select_one(".eggtitle")
+        ep_el   = a.select_one(".eggepisode")
+        h2_el   = art.select_one(".tt h2")
+
+        # Build a clean card title
+        title = ""
+        if title_el:
+            title = title_el.get_text(strip=True)
+        if ep_el:
+            title = (title + " " + ep_el.get_text(strip=True)).strip()
+        if not title and h2_el:
+            title = h2_el.get_text(strip=True)
+
+        img = img_el["src"] if img_el and img_el.has_attr("src") else ""
+
+        results.append({
+            "title": title,
+            "img": img,
+            "post_token": b64e(link)
+        })
+
+    # Detect "Next" page
+    next_page = None
+    nxt = soup.select_one("div.hpage a.r[href]")
+    if nxt and nxt["href"]:
+        m = re.search(r"/page/(\d+)/", nxt["href"])
+        next_page = int(m.group(1)) if m else (page + 1)
+
+    return render_template("partials/latest.html",
+                           results=results,
+                           next_page=next_page)
+
 # -------------------------------
 # EPISODES LIST
 # -------------------------------
