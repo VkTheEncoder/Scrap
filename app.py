@@ -117,32 +117,81 @@ def latest():
 # -------------------------------
 @app.route("/episodes", methods=["POST"])
 def episodes():
-    token = request.form.get("anime_id", "")
-    url = b64d(token) if token else ""
+    enc = request.form.get("anime_id", "").strip()
+    if not enc:
+        return "Invalid request", 400
+
+    url = b64d(enc)
+
+    # --- NEW: accept episode-post URLs and resolve to series page ---
+    series_url = url
+    post_soup = None
+    if "/anime/" not in series_url:
+        series_url, post_soup = resolve_series_url_maybe(url)
+        # If still not found, we will later fall back to 1-episode list
+
+    # If we found a series page, scrape it (old behavior)
     episodes = []
     title = ""
+    if series_url:
+        try:
+            rs = requests.get(series_url, headers=HEADERS, timeout=30)
+            rs.raise_for_status()
+            ss = BeautifulSoup(rs.text, "html.parser")
 
-    if url:
-        r = requests.get(url, headers=HEADERS, timeout=30)
-        soup = BeautifulSoup(r.text, "html.parser")
+            # ===== your existing scraping for series page =====
+            # Example (keep your original selectors here):
+            title_el = ss.select_one("h1.entry-title, .entry-title, .infox h1")
+            title = title_el.get_text(strip=True) if title_el else "Episodes"
 
-        h1 = soup.select_one("h1.entry-title")
-        if h1:
-            title = h1.get_text(strip=True)
-
-        for li in soup.select(".eplister ul li"):
-            a = li.select_one("a")
-            num = li.select_one(".epl-num")
-            ep_title = li.select_one(".epl-title")
-            if a and a.has_attr("href"):
-                href = a["href"]
+            # Collect episode links (reverse if needed)
+            for a in ss.select("ul.episodios li a, div.epslist a, .bxcl li a, .cl a"):
+                ep_title = a.get_text(" ", strip=True)
+                ep_href  = a.get("href", "")
+                if not ep_href:
+                    continue
+                if ep_href.startswith("/"):
+                    ep_href = urljoin(BASE_URL, ep_href)
                 episodes.append({
-                    "num": num.get_text(strip=True) if num else "?",
-                    "title": ep_title.get_text(strip=True) if ep_title else "",
-                    "episode_token": b64e(href)
+                    "title": ep_title,
+                    "token": b64e(ep_href)
                 })
 
-    return render_template("partials/episodes.html", eps=episodes, anime_id=token, title=title)
+        except Exception:
+            pass
+
+    # Fallback: if no series page OR scraped list is empty and we have a post URL,
+    # create a single-entry "episode list" using the episode post itself
+    if not episodes:
+        # We need a soup to read the post title nicely
+        if post_soup is None:
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=30)
+                r.raise_for_status()
+                post_soup = BeautifulSoup(r.text, "html.parser")
+            except Exception:
+                post_soup = None
+
+        post_title = ""
+        if post_soup:
+            # Title from the post page
+            t = post_soup.select_one("h1.entry-title, .entry-title, .tt h2, title")
+            post_title = t.get_text(strip=True) if t else "Episode"
+
+        # Derive a nicer series name if possible
+        if not title:
+            # Often the post title contains the series name at the start
+            title = (post_title or "Episode").split(" Episode ")[0].strip()
+
+        episodes = [{
+            "title": post_title or "Episode 1",
+            "token": b64e(url)
+        }]
+
+    # Render your existing episodes template
+    return render_template("partials/episodes.html",
+                           title=title,
+                           episodes=episodes)
 
 
 @app.route("/process_all", methods=["POST"])
