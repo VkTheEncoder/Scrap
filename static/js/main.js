@@ -2,6 +2,11 @@ console.log("main.js loaded ✅");
 
 $(document).ready(function () {
   // ===============================
+  // Load Latest Release (home cards)
+  // ===============================
+  loadLatest(1); // first page on load
+
+  // ===============================
   // Handle Search Form Submit
   // ===============================
   $("#searchForm").on("submit", function (e) {
@@ -17,6 +22,9 @@ $(document).ready(function () {
       $("#results").html(data).show();
       $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
 
+      // hide latest section while user is in search flow (optional)
+      $("#latest").hide();
+
       // Smooth scroll to results
       $("html, body").animate({
         scrollTop: $("#results").offset().top - 30
@@ -27,12 +35,59 @@ $(document).ready(function () {
   });
 });
 
-// ===============================
+/* =========================================================
+   LATEST RELEASE HELPERS
+   ========================================================= */
+
+// Load a page of latest releases into #latest
+function loadLatest(page) {
+  $.get("/latest", { page: page || 1 }, function (html) {
+    $("#latest").html(html).show();
+  }).fail(function () {
+    console.warn("Failed to load Latest Release.");
+  });
+}
+
+// Append next page results while keeping the same click behavior
+function loadMoreLatest(btn) {
+  const $btn = $(btn);
+  const next = $btn.data("next");
+  if (!next) return;
+
+  $btn.prop("disabled", true).text("Loading…");
+
+  $.get("/latest", { page: next }, function (html) {
+    const $html = $(html);
+    const itemsHtml =
+      $html.find("#latestList").html() ||
+      $html.find(".results-list").html() ||
+      "";
+
+    // append new cards
+    $("#latestList").append(itemsHtml);
+
+    // update or remove Next button
+    const $nextBtn = $html.find("#latestNextBtn");
+    if ($nextBtn.length) {
+      $btn.data("next", $nextBtn.data("next")).prop("disabled", false).text("Next →");
+    } else {
+      $btn.remove();
+    }
+  }).fail(function () {
+    alert("Couldn't load more releases.");
+    $btn.prop("disabled", false).text("Next →");
+  });
+}
+
+/* =========================================================
+   EXISTING FLOW: SEARCH → EPISODES → SERVERS → SUBTITLES → STREAM
+   ========================================================= */
+
 // When user selects an anime → load episodes
-// ===============================
 function selectAnime(id) {
   console.log("Anime selected:", id);
   $("#results").hide(); // hide search results
+  $("#latest").hide();  // hide latest when going inside a show (optional)
 
   $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data).show();
@@ -47,9 +102,7 @@ function selectAnime(id) {
   });
 }
 
-// ===============================
 // When user selects an episode → load available servers
-// ===============================
 function selectEpisode(ep_token) {
   if (!ep_token) {
     alert("Invalid episode token.");
@@ -70,9 +123,7 @@ function selectEpisode(ep_token) {
   });
 }
 
-// ===============================
 // When user selects a server → load available subtitles
-// ===============================
 function selectServer(ep_token, server_value) {
   console.log("Server selected for:", ep_token, "| Server:", server_value);
 
@@ -92,9 +143,7 @@ function selectServer(ep_token, server_value) {
   });
 }
 
-// ===============================
 // When user selects subtitle → load stream info
-// ===============================
 function selectSubtitle(ep_token, server_value, sub_value) {
   console.log("Subtitle selected:", sub_value);
 
@@ -114,9 +163,7 @@ function selectSubtitle(ep_token, server_value, sub_value) {
   });
 }
 
-// ===============================
 // Process all episodes (optional feature)
-// ===============================
 function processAllEpisodes(anime_id) {
   console.log("Processing all episodes:", anime_id);
 
