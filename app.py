@@ -38,39 +38,138 @@ def b64d(s: str) -> str:
 # HELPER: EXTRACT TCA DATA (New, improved regex)
 # -------------------------------
 def extract_tca_data(url):
+    print(f"DEBUG: Extracting from {url}")
     try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
+        # Important: Pass Referer so the site thinks we are a browser
+        headers = HEADERS.copy()
+        headers["Referer"] = BASE_URL_TCA 
+        
+        r = requests.get(url, headers=headers, timeout=20)
         html = r.text
         
-        # 1. Try to find the m3u8 link (source: "..." or file: "...")
-        vid_match = re.search(r'file:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', html)
-        if not vid_match:
-             vid_match = re.search(r'source:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', html)
+        # 1. Extract Video Link (Looser Regex)
+        # Matches: file: "https://..." OR source: "https://..."
+        # We accept .m3u8, .mp4, or generic tokens
+        stream_link = ""
+        vid_match = re.search(r'(?:file|source)\s*:\s*["\'](https?://[^"\']+)["\']', html)
         
-        stream_link = vid_match.group(1) if vid_match else ""
+        if vid_match:
+            stream_link = vid_match.group(1)
+            print(f"DEBUG: Found Video -> {stream_link}")
+        else:
+            print("DEBUG: No video link found in HTML.")
 
-        # 2. Try to find English Subtitle inside tracks: [...]
+        # 2. Extract Subtitles (Look for tracks array)
         sub_url = ""
-        # Look for the tracks array
         tracks_match = re.search(r'tracks\s*:\s*\[(.*?)\]', html, re.DOTALL)
+        
         if tracks_match:
             tracks_content = tracks_match.group(1)
-            # Find the file URL where label is English
-            # Simple check: find a block with 'English' and extract the 'file': '...' from it
-            # We split by "}" to separate objects roughly
-            for part in tracks_content.split('}'):
-                if 'English' in part or 'eng' in part:
-                    f_match = re.search(r'file\s*:\s*["\']([^"\']+)["\']', part)
+            # Find the object containing "English" or "eng"
+            # We split by '}' to check each track block individually
+            for block in tracks_content.split('}'):
+                if 'English' in block or 'eng' in block:
+                    # Extract the file URL from this block
+                    f_match = re.search(r'file\s*:\s*["\']([^"\']+)["\']', block)
                     if f_match:
-                        sub_url = f_match.group(1)
-                        if not sub_url.startswith("http"):
-                            sub_url = urljoin(url, sub_url)
+                        raw_sub = f_match.group(1)
+                        # Fix relative URLs
+                        if not raw_sub.startswith("http"):
+                            sub_url = urljoin(url, raw_sub)
+                        else:
+                            sub_url = raw_sub
+                        print(f"DEBUG: Found Subtitle -> {sub_url}")
                         break
+        else:
+            print("DEBUG: No tracks/subtitles found.")
         
         return stream_link, sub_url
+
     except Exception as e:
-        print("TCA Extraction Error:", e)
+        print(f"DEBUG: TCA Extraction Error: {e}")
         return "", ""
+
+# -------------------------------
+# STREAM LINK + SUBTITLES (Animexin + TCA)
+# -------------------------------
+@app.route("/stream", methods=["POST"])
+def stream():
+    token = request.form.get("episode_token", "").strip()
+    subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
+    server_value = request.form.get("server", "").strip()
+
+    stream_link = ""
+    subs_map = {}
+    duration_str = ""
+    chosen_sub = None
+    is_animexin_dailymotion = False
+    
+    # === 1. TRY ANIMEXIN (DAILYMOTION) ===
+    try:
+        decoded_html = base64.b64decode(b64d(server_value)).decode("utf-8", errors="ignore")
+        if "dailymotion.com" in decoded_html:
+            inner = BeautifulSoup(decoded_html, "html.parser")
+            iframe = inner.find("iframe")
+            src = iframe.get("src") if iframe else None
+
+            if src and "dailymotion.com/embed/video/" in src:
+                is_animexin_dailymotion = True
+                vid_id = src.split("/embed/video/")[-1].split("?")[0]
+                meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+                meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+
+                if "duration" in meta:
+                    duration_str = format_time(meta["duration"])
+
+                if "qualities" in meta:
+                    for q, streams in meta["qualities"].items():
+                        for st in streams:
+                            if st.get("type") == "application/x-mpegURL":
+                                master_url = st["url"]
+                                stream_link = master_url # Keep it simple
+                                subs = extract_subs_from_m3u8(master_url)
+                                subs_map = {s["lang"].lower(): s["url"] for s in subs}
+                                break
+                        if stream_link: break
+    except Exception:
+        pass # Not Animexin or decode failed
+
+    # === 2. TRY TOP CHINESE ANIME (IF NOT ANIMEXIN) ===
+    if not is_animexin_dailymotion:
+        try:
+            # Decode the server value (it might be a direct URL or iframe HTML)
+            tca_raw = b64d(server_value)
+            tca_url = ""
+
+            # Check if it's HTML with an iframe
+            if "<iframe" in tca_raw:
+                soup = BeautifulSoup(tca_raw, "html.parser")
+                iframe = soup.find("iframe")
+                if iframe:
+                    tca_url = iframe.get("src")
+            elif tca_raw.startswith("http"):
+                tca_url = tca_raw
+            
+            if tca_url:
+                stream_link, sub_url = extract_tca_data(tca_url)
+                if sub_url:
+                     # Encode subtitle URL for our download system
+                     subs_map["english"] = b64e(sub_url)
+                     chosen_sub = subs_map["english"]
+        except Exception as e:
+            print("DEBUG: TCA Logic Error:", e)
+
+    # === 3. SUBTITLE SELECTION ===
+    if not chosen_sub and subtitle_pref and subs_map:
+        if subtitle_pref in subs_map:
+            chosen_sub = subs_map[subtitle_pref]
+        else:
+            for lang, tok in subs_map.items():
+                if lang.split("-")[0] == subtitle_pref.split("-")[0]:
+                    chosen_sub = tok
+                    break
+
+    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub, duration=duration_str)
 
 # -------------------------------
 # HOME PAGE
@@ -267,109 +366,6 @@ def get_subtitles():
 
     return render_template("partials/subtitles.html", subtitles=subs, ep_token=ep_token, server_value=server_value)
 
-# -------------------------------
-# STREAM LINK + SUBTITLES
-# -------------------------------
-@app.route("/stream", methods=["POST"])
-def stream():
-    token = request.form.get("episode_token", "").strip()
-    subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
-    server_value = request.form.get("server", "").strip()
-
-    stream_link = ""
-    subs_map = {}
-    duration_str = ""
-    chosen_sub = None
-
-    # ==========================================
-    # 1. ANIMEXIN LOGIC (ORIGINAL RESTORED)
-    # ==========================================
-    is_animexin_dailymotion = False
-    
-    try:
-        # Original decoding logic
-        decoded_html = base64.b64decode(b64d(server_value)).decode("utf-8", errors="ignore")
-        inner = BeautifulSoup(decoded_html, "html.parser")
-        iframe = inner.find("iframe")
-        src = iframe.get("src") if iframe else None
-
-        if src and "dailymotion.com/embed/video/" in src:
-            is_animexin_dailymotion = True
-            vid_id = src.split("/embed/video/")[-1].split("?")[0]
-            meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-            meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
-
-            if "duration" in meta:
-                duration_str = format_time(meta["duration"])
-
-            if "qualities" in meta:
-                for q, streams in meta["qualities"].items():
-                    for st in streams:
-                        if st.get("type") == "application/x-mpegURL":
-                            master_url = st["url"]
-                            
-                            # Original bandwidth checker
-                            m3u8_text = requests.get(master_url, headers=HEADERS, timeout=20).text
-                            best_url, best_bw = None, 0
-                            last_bw = 0
-                            for line in m3u8_text.splitlines():
-                                if line.startswith("#EXT-X-STREAM-INF"):
-                                    match = re.search(r"BANDWIDTH=(\d+)", line)
-                                    if match:
-                                        last_bw = int(match.group(1))
-                                elif line and not line.startswith("#") and "dmcdn.net" in line:
-                                    if last_bw > best_bw:
-                                        best_bw = last_bw
-                                        best_url = urljoin(master_url, line)
-
-                            stream_link = best_url or master_url
-                            
-                            subs = extract_subs_from_m3u8(master_url)
-                            subs_map = {s["lang"].lower(): s["url"] for s in subs}
-                            break
-                    if stream_link: break
-    except Exception as e:
-        # If Animexin decoding fails, it might be TCA, so we ignore this error and pass to step 2
-        pass
-
-    # ==========================================
-    # 2. TOP CHINESE ANIME LOGIC (Only if Animexin didn't work)
-    # ==========================================
-    if not is_animexin_dailymotion:
-        try:
-            # TCA usually passes the direct URL or a simple ID in server_value
-            # Try decoding it simply
-            tca_url = b64d(server_value)
-            
-            # If the decoded value is an HTML string with an iframe (common in standard themes)
-            if "<iframe" in tca_url:
-                soup = BeautifulSoup(tca_url, "html.parser")
-                iframe = soup.find("iframe")
-                if iframe:
-                    tca_url = iframe.get("src")
-
-            if tca_url.startswith("http"):
-                stream_link, sub_url = extract_tca_data(tca_url)
-                if sub_url:
-                     subs_map["english"] = b64e(sub_url)
-                     # Auto-select English for TCA
-                     chosen_sub = subs_map["english"]
-        except Exception as e:
-            print("TCA Logic Error:", e)
-
-    # ==========================================
-    # 3. SUBTITLE SELECTION (SHARED)
-    # ==========================================
-    if not chosen_sub and subtitle_pref and subs_map:
-        if subtitle_pref in subs_map:
-            chosen_sub = subs_map[subtitle_pref]
-        else:
-            for lang, tok in subs_map.items():
-                if lang.split("-")[0] == subtitle_pref.split("-")[0]:
-                    chosen_sub = tok
-                    break
-
-    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub, duration=duration_str)
 # -------------------------------
 # SUBTITLE EXTRACTOR
 # -------------------------------
