@@ -8,7 +8,9 @@ import cloudscraper
 
 app = Flask(__name__)
 
-BASE_URL = "https://animexin.dev"
+BASE_URL_ANIMEXIN = "https://animexin.dev"
+BASE_URL_TCA = "https://topchineseanime.xyz"
+
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 def format_time(seconds):
@@ -466,6 +468,90 @@ def vtt_to_srt(vtt_text: str) -> str:
             buf.append(l)
     flush()
     return "\n".join(out).strip() + ("\n" if out else "")
+
+
+# -------------------------------
+# TOP CHINESE ANIME - LATEST
+# -------------------------------
+@app.route("/latest_tca", methods=["GET"])
+def latest_tca():
+    page = int((request.args.get("page") or 1))
+    # URL structure might differ slightly, usually /page/2/
+    url = BASE_URL_TCA if page == 1 else f"{BASE_URL_TCA}/page/{page}/"
+
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        soup = BeautifulSoup(r.text, "html.parser")
+        results = []
+
+        # Target the list container. 
+        # Based on standard themes, it's often 'div.listupd article.bs' or similar.
+        for art in soup.select("div.listupd article.bs"):
+            a = art.select_one("a[href]")
+            if not a: continue
+            
+            link = a["href"]
+            img_el = art.select_one("img")
+            title_el = art.select_one(".tt") or art.select_one(".eggtitle") 
+            ep_el = art.select_one(".eggepisode") or art.select_one(".epx")
+
+            title = title_el.get_text(strip=True) if title_el else "Unknown"
+            ep = ep_el.get_text(strip=True) if ep_el else ""
+            
+            # Handle lazy loading images if present (data-src)
+            img = ""
+            if img_el:
+                img = img_el.get("src") or img_el.get("data-src") or ""
+
+            results.append({
+                "title": f"{title} {ep}".strip(),
+                "img": img,
+                "post_token": b64e(link),
+                "source": "tca" # Marker to know this is from TopChinese
+            })
+
+        return render_template("partials/latest.html", results=results, next_page=page+1, source="tca")
+    except Exception as e:
+        print("TCA Error:", e)
+        return f"<p>Error loading TopChineseAnime: {e}</p>"
+
+# -------------------------------
+# TOP CHINESE ANIME - SEARCH
+# -------------------------------
+@app.route("/search_tca", methods=["POST"])
+def search_tca():
+    query = request.form.get("query", "").strip()
+    results = []
+
+    if query:
+        # Search URL structure: /?s=query
+        search_url = f"{BASE_URL_TCA}/?s={query}"
+        try:
+            r = requests.get(search_url, headers=HEADERS, timeout=30)
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            for post in soup.select("article.bs"):
+                a = post.select_one("a")
+                link = a["href"] if a else ""
+                
+                title_el = post.select_one(".tt") or post.select_one(".eggtitle")
+                ep_el = post.select_one(".eggepisode") or post.select_one(".epx")
+                img_el = post.select_one("img")
+
+                title = title_el.get_text(strip=True) if title_el else "No Title"
+                ep = f" {ep_el.get_text(strip=True)}" if ep_el else ""
+                img = img_el.get("src") or img_el.get("data-src") or "" if img_el else ""
+
+                results.append({
+                    "title": (title + ep).strip(),
+                    "img": img,
+                    "post_token": b64e(link),
+                    "source": "tca"
+                })
+        except Exception as e:
+            print("Search TCA Error:", e)
+
+    return render_template("partials/results.html", results=results)
 
 # -------------------------------
 # RUN APP
