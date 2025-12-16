@@ -161,22 +161,23 @@ def stream():
             print("DEBUG: Attempting TCA Logic...")
             tca_url = ""
             raw_val = b64d(server_value)
-            
-            # --- DEBUGGING PRINT (Check your logs for this!) ---
-            print(f"DEBUG: Raw Server Value: {raw_val}") 
+            print(f"DEBUG: Raw Server Value: {raw_val}")
 
-            # Handle Iframe HTML
-            if "<iframe" in raw_val:
+            # FIX: Convert to lowercase for checking, but keep raw_val for parsing
+            raw_val_lower = raw_val.lower()
+
+            # Handle Iframe HTML (Case Insensitive)
+            if "<iframe" in raw_val_lower:
                 soup = BeautifulSoup(raw_val, "html.parser")
                 iframe = soup.find("iframe")
                 if iframe:
                     tca_url = iframe.get("src")
             
-            # Handle Direct URLs (including //domain.com)
-            elif "http" in raw_val or raw_val.startswith("//"):
+            # Handle Direct URLs
+            elif "http" in raw_val_lower or raw_val_lower.startswith("//"):
                 tca_url = raw_val
 
-            # Fix missing protocol (// -> https://)
+            # Fix missing protocol
             if tca_url and tca_url.startswith("//"):
                 tca_url = "https:" + tca_url
 
@@ -187,7 +188,7 @@ def stream():
                     subs_map["english"] = b64e(sub_url)
                     chosen_sub = subs_map["english"]
             else:
-                print("DEBUG: No valid URL found in server value.")
+                print("DEBUG: No valid URL found (Check logic failed).")
 
         except Exception as e:
             print(f"DEBUG: TCA Logic Crashed: {e}")
