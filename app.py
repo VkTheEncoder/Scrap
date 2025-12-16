@@ -33,18 +33,6 @@ def b64e(s: str) -> str:
 def b64d(s: str) -> str:
     return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8")
 
-
-It seems the scraping logic for TopChineseAnime is harder than expected because the site likely obfuscates the links or uses a different player structure than what we assumed.
-
-Since I cannot see the live debug logs from your computer, I have updated the code to use a "Brute Force" strategy.
-
-Instead of looking for specific "tracks" or "file" labels (which change often), this version will simply scan the entire page for ANY .m3u8 link and ANY .vtt/.srt link.
-
-Update app.py
-Replace your extract_tca_data and stream functions with this "Brute Force" version.
-
-Python
-
 # -------------------------------
 # HELPER: BRUTE FORCE EXTRACTOR
 # -------------------------------
