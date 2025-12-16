@@ -1,10 +1,11 @@
 console.log("main.js loaded ✅");
 
+// Global variable to track active source (default: animexin)
+let currentSource = "animexin";
+
 $(document).ready(function () {
-  // ===============================
-  // Load Latest Release (home cards)
-  // ===============================
-  loadLatest(1); // first page on load
+  // Load default source on startup
+  changeSource('animexin');
 
   // ===============================
   // Handle Search Form Submit
@@ -17,34 +18,67 @@ $(document).ready(function () {
       return;
     }
 
-    console.log("Searching for:", query);
-    $.post("/search", { query: query }, function (data) {
+    // Decide which route to hit based on currentSource
+    let searchRoute = "/search"; // default animexin
+    if (currentSource === "tca") {
+        searchRoute = "/search_tca";
+    }
+
+    console.log(`Searching on ${currentSource} for:`, query);
+    
+    $.post(searchRoute, { query: query }, function (data) {
       $("#results").html(data).show();
       $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
-
-      // hide latest section while user is in search flow (optional)
       $("#latest").hide();
 
-      // Smooth scroll to results
-      $("html, body").animate({
-        scrollTop: $("#results").offset().top - 30
-      }, 600);
+      $("html, body").animate({ scrollTop: $("#results").offset().top - 30 }, 600);
     }).fail(function () {
-      alert("Error while searching. Please try again.");
+      alert("Error while searching.");
     });
   });
 });
 
-/* =========================================================
-   LATEST RELEASE HELPERS
-   ========================================================= */
+// ===============================
+// SWITCH SOURCE FUNCTION
+// ===============================
+function changeSource(source) {
+    currentSource = source;
+    console.log("Switched source to:", source);
 
-// Load a page of latest releases into #latest
+    // Update UI Buttons
+    if (source === 'animexin') {
+        $("#btn-animexin").removeClass("btn-outline-primary").addClass("btn-primary");
+        $("#btn-tca").removeClass("btn-primary").addClass("btn-outline-primary");
+    } else {
+        $("#btn-tca").removeClass("btn-outline-primary").addClass("btn-primary");
+        $("#btn-animexin").removeClass("btn-primary").addClass("btn-outline-primary");
+    }
+
+    // Clear previous views
+    $("#results, #episodes, #stream").hide();
+    $("#latest").show().html("<p class='text-center'>Loading latest releases...</p>");
+
+    // Load appropriate Latest
+    loadLatest(1); 
+}
+
+// ===============================
+// LOAD LATEST (Dynamic)
+// ===============================
 function loadLatest(page) {
-  $.get("/latest", { page: page || 1 }, function (html) {
+  let route = "/latest"; // default
+  if (currentSource === "tca") {
+      route = "/latest_tca";
+  }
+
+  $.get(route, { page: page || 1 }, function (html) {
     $("#latest").html(html).show();
+    
+    // Update "Next" button logic in the returned HTML if needed
+    // (Ensure your partials/latest.html button calls loadMoreLatest properly)
   }).fail(function () {
     console.warn("Failed to load Latest Release.");
+    $("#latest").html("<p>Error loading content.</p>");
   });
 }
 
