@@ -39,71 +39,68 @@ def b64d(s: str) -> str:
 def extract_tca_data(url):
     print(f"DEBUG: Scraper scanning: {url}")
     try:
-        # Use a fake browser header with Referer
+        # Update Referer to match the embed domain to avoid blocks
+        domain = url.split("/")[2]
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://topchineseanime.xyz/"
+            "Referer": f"https://{domain}/",
+            "Origin": f"https://{domain}"
         }
         
         r = requests.get(url, headers=headers, timeout=20)
         html = r.text
         
-        # 1. BRUTE FORCE SEARCH FOR VIDEO (.m3u8)
-        # Finds any string starting with http and ending with .m3u8
         stream_link = ""
-        # Regex explanation: http(s):// [anything not quote/space] .m3u8 [optional params]
-        m3u8_match = re.search(r'(https?://[^\s"\'<>]+?\.m3u8[^\s"\'<>]*)', html)
-        
-        if m3u8_match:
-            stream_link = m3u8_match.group(1)
-            # Clean up escape slashes if any (like https:\/\/...)
-            stream_link = stream_link.replace('\\/', '/')
-            print(f"DEBUG: Found M3U8 -> {stream_link}")
-        else:
-            # Fallback: Look for .mp4
-            mp4_match = re.search(r'(https?://[^\s"\'<>]+?\.mp4[^\s"\'<>]*)', html)
-            if mp4_match:
-                stream_link = mp4_match.group(1).replace('\\/', '/')
-                print(f"DEBUG: Found MP4 -> {stream_link}")
-
-        # 2. BRUTE FORCE SEARCH FOR SUBTITLE (.vtt or .srt)
         sub_url = ""
-        # Look for English vtt/srt specifically first
-        # Pattern: http...vtt or /path...vtt inside quotes
+
+        # --- 1. VIDEO EXTRACTION ---
+        # Strategy A: Look for file: "..." or source: "..." (Common in JS players)
+        # Captures any content inside quotes, not just http
+        file_matches = re.findall(r'(?:file|source)\s*:\s*["\']([^"\']+)["\']', html)
         
-        # Strategy A: Look for explicit .vtt files
-        vtt_matches = re.findall(r'(https?://[^\s"\'<>]+?\.vtt)', html)
-        if not vtt_matches:
-            # Try relative paths: "/something.vtt"
-            vtt_matches = re.findall(r'["\'](/[^"\']+\.vtt)["\']', html)
+        for match in file_matches:
+            if ".m3u8" in match or ".mp4" in match:
+                stream_link = match
+                # Fix relative URLs (e.g., /hls/video.m3u8)
+                if not stream_link.startswith("http"):
+                    stream_link = urljoin(url, stream_link)
+                # Fix escape slashes
+                stream_link = stream_link.replace('\\/', '/')
+                print(f"DEBUG: Found Video (Strategy A) -> {stream_link}")
+                break
+
+        # Strategy B: If A failed, brute force search for any .m3u8 string
+        if not stream_link:
+            m3u8_match = re.search(r'["\']([^"\']+\.m3u8[^"\']*)["\']', html)
+            if m3u8_match:
+                stream_link = m3u8_match.group(1)
+                if not stream_link.startswith("http"):
+                    stream_link = urljoin(url, stream_link)
+                stream_link = stream_link.replace('\\/', '/')
+                print(f"DEBUG: Found Video (Strategy B) -> {stream_link}")
+
+        # --- 2. SUBTITLE EXTRACTION ---
+        # Look for .vtt or .srt
+        vtt_matches = re.findall(r'["\']([^"\']+\.vtt)["\']', html)
         
-        # If we found any VTTs, try to pick the "eng" one
         for vtt in vtt_matches:
-            # If relative, make it absolute
+            # Check for English indicators in the filename or if it's the only one
             if not vtt.startswith("http"):
                 vtt = urljoin(url, vtt)
             
-            # If the URL itself contains 'eng' or 'English', verify it
+            # Simple heuristic: If multiple exist, prioritize 'eng', else take first
+            sub_url = vtt
             if 'eng' in vtt.lower() or 'english' in vtt.lower():
-                sub_url = vtt
-                break
+                break # Found english, stop looking
         
-        # Strategy B: If no explicit english file found, look for "kind: 'captions'" or "label: 'English'" near a file
-        if not sub_url and "English" in html:
-            # Try to grab the file property near the word "English"
-            # This is risky but often works for JWPlayer/PlayerJS
-            # We look for a 100-character window around the word "English"
-            idx = html.find("English")
-            if idx != -1:
-                snippet = html[max(0, idx-200): min(len(html), idx+200)]
-                # Find any URL inside this snippet
-                link_match = re.search(r'["\'](https?://[^"\']+\.vtt)["\']', snippet)
-                if link_match:
-                    sub_url = link_match.group(1)
-
         if sub_url:
             print(f"DEBUG: Found Subtitle -> {sub_url}")
-        
+
+        # --- DEBUGGING IF FAILURE ---
+        if not stream_link and not sub_url:
+            print("DEBUG: extraction failed. Dumping HTML snippet:")
+            print(html[:500]) # Print first 500 chars to see if we are blocked
+
         return stream_link, sub_url
 
     except Exception as e:
