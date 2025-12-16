@@ -155,22 +155,28 @@ def stream():
     except:
         pass
 
-# === 2. TOP CHINESE ANIME LOGIC (Regex Enhanced) ===
+# === 2. TOP CHINESE ANIME LOGIC (Double Decode + Regex) ===
     if not is_animexin:
         try:
             print("DEBUG: Attempting TCA Logic...")
             tca_url = ""
             raw_val = b64d(server_value)
-            print(f"DEBUG: Raw Server Value: {raw_val}")
+            print(f"DEBUG: Level 1 Decode: {raw_val[:50]}...") # Print first 50 chars
 
-            # 1. Try Regex Extraction (Most Robust for simple iframes)
-            # This finds src="..." or SRC="..." regardless of case
+            # FIX: Check if the result is STILL Base64 (starts with <IFRAME encoded)
+            # 'PElG' is b64 for '<IF', 'PGlm' is b64 for '<if'
+            if raw_val.strip().startswith("PElG") or raw_val.strip().startswith("PGlm"):
+                try:
+                    raw_val = base64.b64decode(raw_val).decode("utf-8", errors="ignore")
+                    print(f"DEBUG: Level 2 Decode (Success): {raw_val[:50]}...")
+                except Exception as e:
+                    print(f"DEBUG: Level 2 Decode Failed: {e}")
+
+            # Now raw_val should be clean HTML. Run Regex.
             src_match = re.search(r'src=["\']([^"\']+)["\']', raw_val, re.IGNORECASE)
             
             if src_match:
                 tca_url = src_match.group(1)
-            
-            # 2. If Regex failed (unlikely), try raw URL check
             elif "http" in raw_val or raw_val.strip().startswith("//"):
                 tca_url = raw_val
 
@@ -186,11 +192,10 @@ def stream():
                     subs_map["english"] = b64e(sub_url)
                     chosen_sub = subs_map["english"]
             else:
-                print("DEBUG: No valid URL found (Check logic failed).")
+                print("DEBUG: No valid URL found (Double Decode & Regex failed).")
 
         except Exception as e:
             print(f"DEBUG: TCA Logic Crashed: {e}")
-
     # === 3. SUBTITLE SELECTION ===
     if not chosen_sub and subtitle_pref and subs_map:
         if subtitle_pref in subs_map:
