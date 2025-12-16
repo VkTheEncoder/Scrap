@@ -62,7 +62,7 @@ def extract_tca_data(url):
         r = requests.get(url, headers=headers, timeout=20)
         html = r.text
         
-        # Decrypt if needed
+        # Decrypt VidHide/Packed JS if present
         if "eval(function" in html:
             try:
                 html = jsbeautifier.beautify(html)
@@ -70,7 +70,7 @@ def extract_tca_data(url):
 
         stream_link = ""
         sub_url = ""
-        duration_str = ""  # <--- NEW VARIABLE
+        duration_str = ""
 
         # 1. Video Extraction
         file_matches = re.findall(r'file\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', html)
@@ -85,25 +85,41 @@ def extract_tca_data(url):
             stream_link = stream_link.replace('\\/', '/')
             print(f"DEBUG: Found Video -> {stream_link}")
             
-            # --- NEW: CALCULATE DURATION ---
+            # --- DURATION CALCULATION (Updated for Master Playlists) ---
             try:
-                # 1. Fetch the m3u8 file content
+                # A. Fetch the M3U8 file
                 m3u_resp = requests.get(stream_link, headers=headers, timeout=10)
                 if m3u_resp.status_code == 200:
-                    lines = m3u_resp.text.splitlines()
-                    total_seconds = 0.0
+                    m3u_text = m3u_resp.text
                     
-                    # 2. Sum up all #EXTINF:10.5, tags
-                    for line in lines:
+                    # B. Check if it's a Master Playlist (contains multiple qualities)
+                    if "#EXT-X-STREAM-INF" in m3u_text:
+                        # We need to fetch one of the sub-playlists to get duration
+                        lines = m3u_text.splitlines()
+                        for line in lines:
+                            if line.strip() and not line.startswith("#"):
+                                # Found a URL to a chunklist
+                                sub_url_list = line
+                                if not sub_url_list.startswith("http"):
+                                    sub_url_list = urljoin(stream_link, sub_url_list)
+                                
+                                # Fetch the actual media playlist
+                                sub_resp = requests.get(sub_url_list, headers=headers, timeout=10)
+                                if sub_resp.status_code == 200:
+                                    m3u_text = sub_resp.text # Replace text with the media list
+                                break
+                    
+                    # C. Sum up the seconds
+                    total_seconds = 0.0
+                    for line in m3u_text.splitlines():
                         if line.startswith("#EXTINF:"):
-                            # Extract the number (e.g., #EXTINF:12.333,)
                             try:
+                                # Line format is like: #EXTINF:10.000,
                                 sec = float(line.split(":")[1].split(",")[0])
                                 total_seconds += sec
-                            except:
-                                pass
+                            except: pass
                     
-                    # 3. Format into "XXm YYs"
+                    # D. Format Time
                     if total_seconds > 0:
                         m, s = divmod(int(total_seconds), 60)
                         h, m = divmod(m, 60)
@@ -124,7 +140,7 @@ def extract_tca_data(url):
             if 'eng' in vtt.lower() or 'english' in vtt.lower():
                 break 
 
-        return stream_link, sub_url, duration_str # <--- RETURN 3 VALUES
+        return stream_link, sub_url, duration_str
 
     except Exception as e:
         print(f"DEBUG: Extraction Error: {e}")
