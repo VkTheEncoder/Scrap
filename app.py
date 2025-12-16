@@ -302,7 +302,7 @@ def stream():
                     break
 
     # <--- UPDATED: Pass 'duration' to the template --->
-    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub, duration=duration_str))
+    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub, duration=duration_str)
 
 # -------------------------------
 # SUBTITLE EXTRACTOR
