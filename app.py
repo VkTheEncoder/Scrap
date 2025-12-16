@@ -125,56 +125,83 @@ def stream():
     chosen_sub = None
     is_animexin = False
 
-    # === 1. ANIMEXIN LOGIC (Dailymotion) ===
+    # === 1. ANIMEXIN LOGIC (Dailymotion Check) ===
     try:
         decoded = base64.b64decode(b64d(server_value)).decode("utf-8", errors="ignore")
         if "dailymotion.com/embed/video/" in decoded:
             is_animexin = True
-            # ... (Your existing code handles Dailymotion logic inside extracting metadata) ...
-            # I am keeping it short here: Reuse your existing successful logic or paste the previous block.
-            # FOR SAFETY: I'll assume you kept the previous working Animexin block here.
-            # If not, use the code from the PREVIOUS response for this block.
-            pass 
+            inner = BeautifulSoup(decoded, "html.parser")
+            iframe = inner.find("iframe")
+            src = iframe.get("src") if iframe else None
+
+            if src:
+                vid_id = src.split("/embed/video/")[-1].split("?")[0]
+                meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+                meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+
+                if "duration" in meta:
+                    duration_str = format_time(meta["duration"])
+
+                if "qualities" in meta:
+                    for q, streams in meta["qualities"].items():
+                        for st in streams:
+                            if st.get("type") == "application/x-mpegURL":
+                                master_url = st["url"]
+                                stream_link = master_url
+                                subs = extract_subs_from_m3u8(master_url)
+                                subs_map = {s["lang"].lower(): s["url"] for s in subs}
+                                break
+                        if stream_link: break
     except:
         pass
 
-    # Note: If you already have working Animexin logic in your file, 
-    # just put this "TCA LOGIC" in the 'else' block or check flag.
-
-    # === 2. TOP CHINESE ANIME LOGIC (New Brute Force) ===
+    # === 2. TOP CHINESE ANIME LOGIC (Fixed) ===
     if not is_animexin:
         try:
             print("DEBUG: Attempting TCA Logic...")
             tca_url = ""
             raw_val = b64d(server_value)
+            
+            # --- DEBUGGING PRINT (Check your logs for this!) ---
+            print(f"DEBUG: Raw Server Value: {raw_val}") 
 
-            # Check for iframe src inside HTML
+            # Handle Iframe HTML
             if "<iframe" in raw_val:
                 soup = BeautifulSoup(raw_val, "html.parser")
                 iframe = soup.find("iframe")
                 if iframe:
                     tca_url = iframe.get("src")
-            elif raw_val.startswith("http"):
-                tca_url = raw_val
             
+            # Handle Direct URLs (including //domain.com)
+            elif "http" in raw_val or raw_val.startswith("//"):
+                tca_url = raw_val
+
+            # Fix missing protocol (// -> https://)
+            if tca_url and tca_url.startswith("//"):
+                tca_url = "https:" + tca_url
+
             if tca_url:
                 stream_link, sub_url = extract_tca_data(tca_url)
                 
-                # If we found a sub, force add it
                 if sub_url:
                     subs_map["english"] = b64e(sub_url)
                     chosen_sub = subs_map["english"]
-                
-                # If we found a stream link but no sub, 
-                # we might still want to check the m3u8 for internal subs (hls)
-                if stream_link and not sub_url:
-                    # Optional: Check m3u8 content for subs
-                    pass
+            else:
+                print("DEBUG: No valid URL found in server value.")
 
         except Exception as e:
             print(f"DEBUG: TCA Logic Crashed: {e}")
 
-    # Standard Return
+    # === 3. SUBTITLE SELECTION ===
+    if not chosen_sub and subtitle_pref and subs_map:
+        if subtitle_pref in subs_map:
+            chosen_sub = subs_map[subtitle_pref]
+        else:
+            for lang, tok in subs_map.items():
+                if lang.split("-")[0] == subtitle_pref.split("-")[0]:
+                    chosen_sub = tok
+                    break
+
     return render_template("partials/stream.html", link=stream_link, sub=chosen_sub, duration=duration_str)
 
 # -------------------------------
