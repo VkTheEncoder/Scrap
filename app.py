@@ -6,8 +6,20 @@ import re
 from urllib.parse import urljoin
 import cloudscraper
 import jsbeautifier
+import ssl
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 app = Flask(__name__)
+# Custom Adapter to fix SSL Handshake Failures
+class CustomSSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        # Create a context that permits legacy/older ciphers (SECLEVEL=1)
+        ctx = create_urllib3_context(ciphers='DEFAULT@SECLEVEL=1')
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs['ssl_context'] = ctx
+        return super(CustomSSLAdapter, self).init_poolmanager(*args, **kwargs)
 
 BASE_URL = "https://animexin.dev"
 BASE_URL_TCA = "https://topchineseanime.xyz"
@@ -460,46 +472,55 @@ def download_sub():
         return "Invalid token", 400
 
     try:
-        scraper = cloudscraper.create_scraper()
+        # Create scraper with custom SSL adapter
+        session = cloudscraper.create_scraper()
+        adapter = CustomSSLAdapter()
+        session.mount("https://", adapter)
+        
+        # Determine Headers based on the domain
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Origin": "https://www.dailymotion.com",
-            "Referer": "https://www.dailymotion.com/",
         }
 
-        # Recursive subtitle fetcher
-        def fetch_real_sub(vtt_url, depth=0):
-            """Recursively follow playlists until we reach real subtitle text."""
-            if depth > 3:
-                return ""  # safety limit
+        # Only add Dailymotion headers if it is actually Dailymotion
+        if "dailymotion.com" in url:
+            headers["Origin"] = "https://www.dailymotion.com"
+            headers["Referer"] = "https://www.dailymotion.com/"
+        else:
+            # For VidHide/TCA, we might need a generic referer or none
+            # Usually empty is safer for raw file downloads unless checked
+            pass 
 
-            resp = scraper.get(vtt_url, headers=headers, timeout=20)
+        # Recursive subtitle fetcher
+        def fetch_real_sub(target_url, depth=0):
+            if depth > 3: return "" 
+
+            # Use session instead of scraper directly to use the Adapter
+            resp = session.get(target_url, headers=headers, timeout=20, verify=False)
+            
+            # Handle standard HTTP errors
+            if resp.status_code != 200:
+                print(f"DEBUG: Sub download failed {resp.status_code} at {target_url}")
+                return ""
+
             text = resp.text.strip()
 
             # If file is an m3u8 playlist, go deeper
             if text.startswith("#EXTM3U"):
                 lines = [
-                    urljoin(vtt_url, l.strip())
+                    urljoin(target_url, l.strip())
                     for l in text.splitlines()
                     if l.strip() and not l.startswith("#")
                 ]
-                # pick the first .vtt inside or recursively fetch first line
                 for l in lines:
                     if l.lower().endswith(".vtt") or l.lower().endswith(".webvtt"):
                         return fetch_real_sub(l, depth + 1)
-                # no direct .vtt, maybe another playlist
                 if lines:
                     return fetch_real_sub(lines[0], depth + 1)
-                return ""
             return text
 
-        # Fetch actual subtitle content (recursively)
+        # Fetch actual subtitle content
         vtt_text = fetch_real_sub(url)
 
         if not vtt_text or len(vtt_text) < 20:
@@ -507,6 +528,8 @@ def download_sub():
 
         # Convert to SRT
         srt_text = vtt_to_srt(vtt_text)
+        
+        # Return file
         if not srt_text.strip():
             return Response(
                 vtt_text,
