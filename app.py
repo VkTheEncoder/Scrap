@@ -8,7 +8,7 @@ import cloudscraper
 
 app = Flask(__name__)
 
-BASE_URL_ANIMEXIN = "https://animexin.dev"
+BASE_URL = "https://animexin.dev"
 BASE_URL_TCA = "https://topchineseanime.xyz"
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
