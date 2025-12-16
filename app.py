@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin
 import cloudscraper
+import jsbeautifier
 
 app = Flask(__name__)
 
@@ -39,7 +40,7 @@ def b64d(s: str) -> str:
 def extract_tca_data(url):
     print(f"DEBUG: Scraper scanning: {url}")
     try:
-        # Update Referer to match the embed domain to avoid blocks
+        # Standard Headers
         domain = url.split("/")[2]
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -50,63 +51,59 @@ def extract_tca_data(url):
         r = requests.get(url, headers=headers, timeout=20)
         html = r.text
         
+        # === DECRYPTION STEP ===
+        # If we see "eval(function", it means the code is packed/encrypted.
+        if "eval(function" in html:
+            print("DEBUG: Detected Packed JS. Attempting to decrypt...")
+            try:
+                # This unpacks the hidden code into readable text
+                html = jsbeautifier.beautify(html)
+                print("DEBUG: Decryption successful.")
+            except Exception as e:
+                print(f"DEBUG: Decryption failed: {e}")
+
+        # === EXTRACTION STEP ===
         stream_link = ""
         sub_url = ""
 
-        # --- 1. VIDEO EXTRACTION ---
-        # Strategy A: Look for file: "..." or source: "..." (Common in JS players)
-        # Captures any content inside quotes, not just http
-        file_matches = re.findall(r'(?:file|source)\s*:\s*["\']([^"\']+)["\']', html)
-        
-        for match in file_matches:
-            if ".m3u8" in match or ".mp4" in match:
-                stream_link = match
-                # Fix relative URLs (e.g., /hls/video.m3u8)
-                if not stream_link.startswith("http"):
-                    stream_link = urljoin(url, stream_link)
-                # Fix escape slashes
-                stream_link = stream_link.replace('\\/', '/')
-                print(f"DEBUG: Found Video (Strategy A) -> {stream_link}")
-                break
-
-        # Strategy B: If A failed, brute force search for any .m3u8 string
-        if not stream_link:
-            m3u8_match = re.search(r'["\']([^"\']+\.m3u8[^"\']*)["\']', html)
+        # 1. Search for Video (.m3u8) in the (now decrypted) HTML
+        # Look for typical VidHide pattern: file:"url"
+        file_matches = re.findall(r'file\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', html)
+        if file_matches:
+            stream_link = file_matches[0]
+        else:
+            # Fallback: Find ANY http link ending in .m3u8
+            m3u8_match = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', html)
             if m3u8_match:
                 stream_link = m3u8_match.group(1)
-                if not stream_link.startswith("http"):
-                    stream_link = urljoin(url, stream_link)
-                stream_link = stream_link.replace('\\/', '/')
-                print(f"DEBUG: Found Video (Strategy B) -> {stream_link}")
 
-        # --- 2. SUBTITLE EXTRACTION ---
-        # Look for .vtt or .srt
+        if stream_link:
+            # Clean up the link
+            stream_link = stream_link.replace('\\/', '/')
+            print(f"DEBUG: Found Video -> {stream_link}")
+
+        # 2. Search for Subtitles (.vtt)
         vtt_matches = re.findall(r'["\']([^"\']+\.vtt)["\']', html)
-        
         for vtt in vtt_matches:
-            # Check for English indicators in the filename or if it's the only one
             if not vtt.startswith("http"):
                 vtt = urljoin(url, vtt)
-            
-            # Simple heuristic: If multiple exist, prioritize 'eng', else take first
+            # Prioritize English
             sub_url = vtt
             if 'eng' in vtt.lower() or 'english' in vtt.lower():
-                break # Found english, stop looking
-        
+                break 
+
         if sub_url:
             print(f"DEBUG: Found Subtitle -> {sub_url}")
 
-        # --- DEBUGGING IF FAILURE ---
         if not stream_link and not sub_url:
-            print("DEBUG: extraction failed. Dumping HTML snippet:")
-            print(html[:500]) # Print first 500 chars to see if we are blocked
+            print("DEBUG: Still no link found. Dumping partial HTML for analysis:")
+            print(html[:1000]) # Print first 1000 chars to see what's happening
 
         return stream_link, sub_url
 
     except Exception as e:
         print(f"DEBUG: Extraction Error: {e}")
         return "", ""
-
 # -------------------------------
 # STREAM ROUTE (UPDATED)
 # -------------------------------
