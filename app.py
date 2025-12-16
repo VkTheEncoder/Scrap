@@ -531,16 +531,19 @@ def download_sub():
         
         # Return file
         if not srt_text.strip():
+            # Fallback if conversion fails
             return Response(
                 vtt_text,
-                mimetype="text/vtt",
-                headers={"Content-Disposition": "attachment; filename=subtitle.vtt"}
+                mimetype="application/octet-stream",
+                headers={"Content-Disposition": 'attachment; filename="subtitle.vtt"'}
             )
 
+        # Success: Return SRT
         return Response(
             srt_text,
-            mimetype="text/plain",
-            headers={"Content-Disposition": "attachment; filename=subtitle.srt"}
+            # using octet-stream forces the browser to download it exactly as named
+            mimetype="application/octet-stream", 
+            headers={"Content-Disposition": 'attachment; filename="subtitle.srt"'}
         )
 
     except Exception as e:
