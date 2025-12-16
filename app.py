@@ -11,6 +11,20 @@ app = Flask(__name__)
 BASE_URL = "https://animexin.dev"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+def format_time(seconds):
+    if not seconds:
+        return ""
+    try:
+        seconds = int(seconds)
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        if h > 0:
+            return f"{h}h {m}m {s}s"
+        return f"{m}m {s}s"
+    except:
+        return ""
+
+
 def b64e(s: str) -> str:
     return base64.urlsafe_b64encode(s.encode("utf-8")).decode("utf-8")
 
@@ -223,6 +237,7 @@ def stream():
 
     stream_link = ""
     subs_map = {}
+    duration_str = ""  # <--- NEW VARIABLE
 
     try:
         decoded_html = base64.b64decode(b64d(server_value)).decode("utf-8", errors="ignore")
@@ -233,13 +248,17 @@ def stream():
         src = None
 
     if not src:
-        return render_template("partials/stream.html", link="", sub=None)
+        return render_template("partials/stream.html", link="", sub=None, duration="")
 
     try:
         if "dailymotion.com/embed/video/" in src:
             vid_id = src.split("/embed/video/")[-1].split("?")[0]
             meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
             meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+
+            # <--- NEW: Extract and format duration --->
+            if "duration" in meta:
+                duration_str = format_time(meta["duration"])
 
             if "qualities" in meta:
                 for q, streams in meta["qualities"].items():
@@ -282,7 +301,8 @@ def stream():
                     chosen_sub = tok
                     break
 
-    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub)
+    # <--- UPDATED: Pass 'duration' to the template --->
+    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub, duration=duration_str))
 
 # -------------------------------
 # SUBTITLE EXTRACTOR
