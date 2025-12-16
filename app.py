@@ -52,10 +52,9 @@ def b64d(s: str) -> str:
 def extract_tca_data(url):
     print(f"DEBUG: Scraper scanning: {url}")
     try:
-        # Standard Headers
         domain = url.split("/")[2]
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
             "Referer": f"https://{domain}/",
             "Origin": f"https://{domain}"
         }
@@ -63,59 +62,73 @@ def extract_tca_data(url):
         r = requests.get(url, headers=headers, timeout=20)
         html = r.text
         
-        # === DECRYPTION STEP ===
-        # If we see "eval(function", it means the code is packed/encrypted.
+        # Decrypt if needed
         if "eval(function" in html:
-            print("DEBUG: Detected Packed JS. Attempting to decrypt...")
             try:
-                # This unpacks the hidden code into readable text
                 html = jsbeautifier.beautify(html)
-                print("DEBUG: Decryption successful.")
-            except Exception as e:
-                print(f"DEBUG: Decryption failed: {e}")
+            except: pass
 
-        # === EXTRACTION STEP ===
         stream_link = ""
         sub_url = ""
+        duration_str = ""  # <--- NEW VARIABLE
 
-        # 1. Search for Video (.m3u8) in the (now decrypted) HTML
-        # Look for typical VidHide pattern: file:"url"
+        # 1. Video Extraction
         file_matches = re.findall(r'file\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', html)
         if file_matches:
             stream_link = file_matches[0]
         else:
-            # Fallback: Find ANY http link ending in .m3u8
             m3u8_match = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', html)
             if m3u8_match:
                 stream_link = m3u8_match.group(1)
 
         if stream_link:
-            # Clean up the link
             stream_link = stream_link.replace('\\/', '/')
             print(f"DEBUG: Found Video -> {stream_link}")
+            
+            # --- NEW: CALCULATE DURATION ---
+            try:
+                # 1. Fetch the m3u8 file content
+                m3u_resp = requests.get(stream_link, headers=headers, timeout=10)
+                if m3u_resp.status_code == 200:
+                    lines = m3u_resp.text.splitlines()
+                    total_seconds = 0.0
+                    
+                    # 2. Sum up all #EXTINF:10.5, tags
+                    for line in lines:
+                        if line.startswith("#EXTINF:"):
+                            # Extract the number (e.g., #EXTINF:12.333,)
+                            try:
+                                sec = float(line.split(":")[1].split(",")[0])
+                                total_seconds += sec
+                            except:
+                                pass
+                    
+                    # 3. Format into "XXm YYs"
+                    if total_seconds > 0:
+                        m, s = divmod(int(total_seconds), 60)
+                        h, m = divmod(m, 60)
+                        if h > 0:
+                            duration_str = f"{h}h {m}m {s}s"
+                        else:
+                            duration_str = f"{m}m {s}s"
+                        print(f"DEBUG: Calculated Duration -> {duration_str}")
+            except Exception as e:
+                print(f"DEBUG: Duration Calc Failed: {e}")
 
-        # 2. Search for Subtitles (.vtt)
+        # 2. Subtitle Extraction
         vtt_matches = re.findall(r'["\']([^"\']+\.vtt)["\']', html)
         for vtt in vtt_matches:
             if not vtt.startswith("http"):
                 vtt = urljoin(url, vtt)
-            # Prioritize English
             sub_url = vtt
             if 'eng' in vtt.lower() or 'english' in vtt.lower():
                 break 
 
-        if sub_url:
-            print(f"DEBUG: Found Subtitle -> {sub_url}")
-
-        if not stream_link and not sub_url:
-            print("DEBUG: Still no link found. Dumping partial HTML for analysis:")
-            print(html[:1000]) # Print first 1000 chars to see what's happening
-
-        return stream_link, sub_url
+        return stream_link, sub_url, duration_str # <--- RETURN 3 VALUES
 
     except Exception as e:
         print(f"DEBUG: Extraction Error: {e}")
-        return "", ""
+        return "", "", ""
 # -------------------------------
 # STREAM ROUTE (UPDATED)
 # -------------------------------
@@ -160,8 +173,7 @@ def stream():
                         if stream_link: break
     except:
         pass
-
-# === 2. TOP CHINESE ANIME LOGIC (Double Decode + Regex) ===
+    # === 2. TOP CHINESE ANIME LOGIC (Double Decode + Regex) ===
     if not is_animexin:
         try:
             print("DEBUG: Attempting TCA Logic...")
@@ -192,7 +204,13 @@ def stream():
 
             if tca_url:
                 print(f"DEBUG: Extracted URL -> {tca_url}")
-                stream_link, sub_url = extract_tca_data(tca_url)
+                
+                # UPDATED LINE: Now expecting 3 values (link, sub, duration)
+                stream_link, sub_url, dur = extract_tca_data(tca_url)
+                
+                # If we got a duration, save it
+                if dur:
+                    duration_str = dur
                 
                 if sub_url:
                     subs_map["english"] = b64e(sub_url)
