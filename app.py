@@ -155,7 +155,7 @@ def stream():
     except:
         pass
 
-    # === 2. TOP CHINESE ANIME LOGIC (Fixed) ===
+# === 2. TOP CHINESE ANIME LOGIC (Regex Enhanced) ===
     if not is_animexin:
         try:
             print("DEBUG: Attempting TCA Logic...")
@@ -163,25 +163,23 @@ def stream():
             raw_val = b64d(server_value)
             print(f"DEBUG: Raw Server Value: {raw_val}")
 
-            # FIX: Convert to lowercase for checking, but keep raw_val for parsing
-            raw_val_lower = raw_val.lower()
-
-            # Handle Iframe HTML (Case Insensitive)
-            if "<iframe" in raw_val_lower:
-                soup = BeautifulSoup(raw_val, "html.parser")
-                iframe = soup.find("iframe")
-                if iframe:
-                    tca_url = iframe.get("src")
+            # 1. Try Regex Extraction (Most Robust for simple iframes)
+            # This finds src="..." or SRC="..." regardless of case
+            src_match = re.search(r'src=["\']([^"\']+)["\']', raw_val, re.IGNORECASE)
             
-            # Handle Direct URLs
-            elif "http" in raw_val_lower or raw_val_lower.startswith("//"):
+            if src_match:
+                tca_url = src_match.group(1)
+            
+            # 2. If Regex failed (unlikely), try raw URL check
+            elif "http" in raw_val or raw_val.strip().startswith("//"):
                 tca_url = raw_val
 
-            # Fix missing protocol
+            # Fix missing protocol (// -> https://)
             if tca_url and tca_url.startswith("//"):
                 tca_url = "https:" + tca_url
 
             if tca_url:
+                print(f"DEBUG: Extracted URL -> {tca_url}")
                 stream_link, sub_url = extract_tca_data(tca_url)
                 
                 if sub_url:
