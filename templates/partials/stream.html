@@ -8,6 +8,10 @@
   <p>No stream link found.</p>
 {% endif %}
 
+{% if duration %}
+  <p style="margin-top: 5px;"><strong>Duration:</strong> {{ duration }}</p>
+{% endif %}
+
 {% if sub %}
   <div style="margin-top:15px;">
     <h3 style="margin-bottom:8px;">Subtitle File</h3>
