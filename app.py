@@ -160,7 +160,7 @@ def stream():
     chosen_sub = None
     is_animexin = False
 
-    # === 1. ANIMEXIN LOGIC (Dailymotion Check) ===
+# === 1. ANIMEXIN LOGIC (Dailymotion - Get Direct 1080p Link) ===
     try:
         decoded = base64.b64decode(b64d(server_value)).decode("utf-8", errors="ignore")
         if "dailymotion.com/embed/video/" in decoded:
@@ -170,25 +170,63 @@ def stream():
             src = iframe.get("src") if iframe else None
 
             if src:
+                # 1. Get Video Metadata
                 vid_id = src.split("/embed/video/")[-1].split("?")[0]
                 meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
                 meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
 
+                # 2. Get Duration
                 if "duration" in meta:
                     duration_str = format_time(meta["duration"])
 
+                # 3. Find the Master Playlist URL first
+                master_url = ""
                 if "qualities" in meta:
                     for q, streams in meta["qualities"].items():
                         for st in streams:
                             if st.get("type") == "application/x-mpegURL":
                                 master_url = st["url"]
-                                stream_link = master_url
+                                # Extract subs while we are here
                                 subs = extract_subs_from_m3u8(master_url)
                                 subs_map = {s["lang"].lower(): s["url"] for s in subs}
                                 break
-                        if stream_link: break
-    except:
-        pass
+                        if master_url: break
+
+                # 4. FETCH 1080p DIRECT LINK (Parsing the Master Playlist)
+                if master_url:
+                    try:
+                        # We must download the master list text to find the 1080p link
+                        m3u_resp = requests.get(master_url, headers=HEADERS, timeout=10)
+                        
+                        if m3u_resp.status_code == 200:
+                            lines = m3u_resp.text.splitlines()
+                            best_bw = 0
+                            direct_link = ""
+                            
+                            # Loop through lines to find highest bandwidth/resolution
+                            for i, line in enumerate(lines):
+                                if line.startswith("#EXT-X-STREAM-INF"):
+                                    # Check bandwidth to find best quality
+                                    bw_match = re.search(r"BANDWIDTH=(\d+)", line)
+                                    curr_bw = int(bw_match.group(1)) if bw_match else 0
+                                    
+                                    # If this is better than what we found, take the NEXT line as the URL
+                                    if curr_bw > best_bw:
+                                        best_bw = curr_bw
+                                        potential_link = lines[i+1]
+                                        direct_link = potential_link
+                            
+                            # If we found a link, set it!
+                            if direct_link:
+                                stream_link = direct_link
+                            else:
+                                stream_link = master_url # Fallback
+                    except Exception as e:
+                        print("Error parsing Master M3U8:", e)
+                        stream_link = master_url # Fallback
+
+    except Exception as e:
+        print("Animexin Error:", e)
     # === 2. TOP CHINESE ANIME LOGIC (Double Decode + Regex) ===
     if not is_animexin:
         try:
