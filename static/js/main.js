@@ -2,30 +2,44 @@ console.log("main.js loaded ✅");
 
 // Global variables to track state
 let currentSource = "animexin";
-let globalAnimeTitle = ""; 
+let globalAnimeTitle = "Anime"; // Default
 let globalEpisodeNum = "";
 
 $(document).ready(function () {
   changeSource('animexin');
 
-  // ===============================
-  // 1. CAPTURE EPISODE NUMBER (CRITICAL FIX)
-  // ===============================
-  // Use 'body' delegation to ensure it works even after AJAX loads
-  $("body").on("click", ".eplister ul li a, .eplister ul li", function() {
-      // 1. Try to find the specific number class
-      let num = $(this).find(".epl-num").text();
+  // ======================================================
+  // 1. CAPTURE TITLE (When clicking an Anime Card)
+  // ======================================================
+  // This listens for clicks on ANY anime card (Search results or Latest)
+  $("body").on("click", "article.bs a", function() {
+      // Find the card container
+      let card = $(this).closest("article.bs");
       
-      // 2. If not found, just get the text of the link itself
-      if (!num) num = $(this).text();
+      // Try to find the title text inside valid classes
+      let title = card.find(".tt, .eggtitle, .entry-title, h2, h4").text();
       
-      // 3. Clean it up
+      if (title) {
+          // Remove "Episode X" from the title if it exists (cleaning)
+          globalAnimeTitle = title.replace(/Episode\s+\d+.*/i, "").trim();
+          console.log("🎯 Title Captured:", globalAnimeTitle);
+      }
+  });
+
+  // ======================================================
+  // 2. CAPTURE EPISODE (When clicking an Episode Button)
+  // ======================================================
+  $("body").on("click", ".eplister li, .eplister li a", function() {
+      // Try to find the number in specific class, OR just take the whole text
+      let num = $(this).find(".epl-num").text() || $(this).text();
+      
+      // Clean up the text (remove spaces/newlines)
       globalEpisodeNum = num.trim();
-      console.log("✅ Captured Episode Click:", globalEpisodeNum);
+      console.log("🎯 Episode Captured:", globalEpisodeNum);
   });
 
   // ===============================
-  // Handle Search Form Submit
+  // Search Form
   // ===============================
   $("#searchForm").on("submit", function (e) {
     e.preventDefault();
@@ -49,14 +63,14 @@ $(document).ready(function () {
 });
 
 // ===============================
-// SWITCH SOURCE FUNCTION
+// SWITCH SOURCE
 // ===============================
 function changeSource(source) {
     currentSource = source;
-    globalAnimeTitle = ""; 
+    // Reset Globals
+    globalAnimeTitle = "Anime";
     globalEpisodeNum = "";
     
-    // UI Updates
     if (source === 'animexin') {
         $("#btn-animexin").removeClass("btn-outline-primary").addClass("btn-primary");
         $("#btn-tca").removeClass("btn-primary").addClass("btn-outline-primary");
@@ -112,19 +126,6 @@ function selectAnime(id) {
   $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data).show();
     $("#serverSelection, #subtitleSelection, #stream").hide();
-    
-    // ✅ FIX: Grab the title from the LOADED CONTENT, not the page header
-    // We look specifically inside the #episodes container
-    setTimeout(function() {
-        let titleCandidate = $("#episodes h1").text() || $("#episodes .entry-title").text();
-        if(titleCandidate) {
-            globalAnimeTitle = titleCandidate.trim();
-            console.log("✅ Captured Title:", globalAnimeTitle);
-        } else {
-             console.warn("⚠️ Could not find title inside #episodes");
-        }
-    }, 100);
-
     $("html, body").animate({ scrollTop: $("#episodes").offset().top - 30 }, 600);
   });
 }
@@ -132,7 +133,6 @@ function selectAnime(id) {
 // 2. Select Episode
 function selectEpisode(ep_token) {
   if (!ep_token) return;
-  // Note: globalEpisodeNum is already captured by the 'click' listener at top of file
   
   $.post("/get_servers", { episode_token: ep_token }, function (data) {
     $("#serverSelection").html(data).show();
@@ -160,21 +160,17 @@ function selectSubtitle(ep_token, server_value, sub_value) {
   let finalTitle = globalAnimeTitle;
   let finalEp = globalEpisodeNum;
 
-  // Fallback: If title is missing, try one last desperate grab from the page
-  if (!finalTitle || finalTitle === "Search Anime") {
-       finalTitle = $("#episodes h1").text().trim();
-  }
-  // Fallback: Default to "Anime" if still failing
+  // Safety fallback
   if (!finalTitle) finalTitle = "Anime";
 
-  console.log("🚀 Requesting Stream -> Title:", finalTitle, "| Ep:", finalEp);
+  console.log("🚀 Downloading -> Title:", finalTitle, "| Ep:", finalEp);
 
   $.post('/stream', { 
       episode_token: ep_token,  
       server: server_value,     
       subtitle: sub_value,
-      title: finalTitle,        // <--- Sending Correct Title
-      episode: finalEp          // <--- Sending Correct Episode
+      title: finalTitle,        // <--- Send captured Title
+      episode: finalEp          // <--- Send captured Episode
   }, function(data) {
       $("#stream").html(data).show();
       $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
