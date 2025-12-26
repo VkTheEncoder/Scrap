@@ -181,12 +181,22 @@ function selectServer(ep_token, server_value) {
 function selectSubtitle(ep_token, server_value, sub_value) {
   console.log("Subtitle selected:", sub_value);
 
-  $.post("/stream", {
-    episode_token: ep_token,
-    server: server_value,
-    subtitle: sub_value
-  }, function (data) {
-    $("#stream").html(data).show();
+  // 1. Get the Anime Name (Adjust the selector ".anime-title" to match your HTML)
+  // If your anime title is in an <h2> or <h3> tag, use $("h2").text()
+  var animeName = $("h3.title").text() || $("h2").text() || "Anime"; 
+  
+  // 2. Get the Episode Number (The text of the active/clicked button)
+  var episodeNum = $(this).text().trim(); // Or pass the variable if you have it
+  
+  // 3. Send it to Python
+  $.post('/stream', { 
+      episode_token: token, 
+      server: server,
+      title: animeName,   // <--- Sending Title
+      episode: episodeNum // <--- Sending Episode
+  }, function(data) {
+      // ... (rest of your code)
+  });
 
     // ✅ Smooth scroll to stream section
     $("html, body").animate({
