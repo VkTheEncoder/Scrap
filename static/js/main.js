@@ -1,6 +1,6 @@
 console.log("main.js loaded ✅");
 
-// Global variables (Fallback)
+// Global variables (Backup)
 let currentSource = "animexin";
 let globalAnimeTitle = "Anime"; 
 let globalEpisodeNum = "";
@@ -8,15 +8,23 @@ let globalEpisodeNum = "";
 $(document).ready(function () {
   changeSource('animexin');
 
-  // Capture Title/Episode from clicks (Fallback method)
-  $("body").on("click", "article.bs a", function() {
-      let title = $(this).closest("article.bs").find(".tt, .eggtitle, .entry-title, h2, h4").text();
-      if (title) globalAnimeTitle = title.replace(/Episode\s+\d+.*/i, "").trim();
+  // 1. CAPTURE TITLE (Click on Anime Card)
+  // We listen on the whole article card to ensure we catch the click
+  $("body").on("click", "article.bs, article.bs a", function() {
+      let card = $(this).closest("article.bs");
+      let title = card.find(".tt, .eggtitle, .entry-title, h2, h4").text();
+      if (title) {
+          // Remove "Episode X" garbage if present
+          globalAnimeTitle = title.replace(/Episode\s+\d+.*/i, "").trim();
+          console.log("🎯 Title Captured:", globalAnimeTitle);
+      }
   });
 
+  // 2. CAPTURE EPISODE (Click on Episode List)
   $("body").on("click", ".eplister li", function() {
       let num = $(this).find(".epl-num").text() || $(this).text();
       globalEpisodeNum = num.trim();
+      console.log("🎯 Episode Captured:", globalEpisodeNum);
   });
 
   // Search Form
@@ -53,7 +61,6 @@ function changeSource(source) {
     loadLatest(1); 
 }
 
-// Load Latest
 function loadLatest(page) {
   let route = (currentSource === "tca") ? "/latest_tca" : "/latest";
   $.get(route, { page: page || 1 }, function (html) { $("#latest").html(html).show(); });
@@ -77,8 +84,8 @@ function selectAnime(id) {
   $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data).show();
     $("#serverSelection, #subtitleSelection, #stream").hide();
-    // Try to grab title from the new page content
-    let t = $("#episodes h1").text();
+    // Try to grab title from the new page content immediately
+    let t = $("#episodes h1").text() || $("#episodes .entry-title").text();
     if(t) globalAnimeTitle = t.trim();
     $("html, body").animate({ scrollTop: $("#episodes").offset().top - 30 }, 600);
   });
@@ -100,41 +107,43 @@ function selectServer(ep_token, server_value) {
   });
 }
 
-// ✅ FIX IS HERE: Parse the name directly from the button you click
+// ✅ FIX IS HERE: Use document.activeElement
 function selectSubtitle(ep_token, server_value, sub_value) {
   
-  // 1. Get the text of the clicked button
-  // Example: "Ep 4 - Wealth and Wonder Episode 4 Subtitle"
-  let btnText = $(this).text().trim();
+  // 1. Get the button that was just clicked
+  let btn = $(document.activeElement);
+  let btnText = btn.text().trim();
   
+  // If activeElement failed (rare), fallback to globals
   let finalTitle = globalAnimeTitle;
   let finalEp = globalEpisodeNum;
 
-  // 2. Try to extract Title from button (Regex: Text between " - " and " Episode")
+  console.log("🖱️ Clicked Button Text:", btnText);
+
+  // 2. Parse Title (Text between " - " and " Episode")
+  // Example: "Ep 4 - Wealth and Wonder Episode 4 Subtitle"
   let titleMatch = btnText.match(/-\s*(.*?)\s*Episode/i);
   if (titleMatch && titleMatch[1]) {
       finalTitle = titleMatch[1].trim();
-      console.log("✅ Found Title in Button:", finalTitle);
   }
 
-  // 3. Try to extract Episode from button (Regex: "Ep 4")
+  // 3. Parse Episode (Text after "Ep ")
   let epMatch = btnText.match(/Ep\s*(\d+)/i);
   if (epMatch && epMatch[1]) {
       finalEp = epMatch[1];
-      console.log("✅ Found Ep in Button:", finalEp);
   }
 
-  // Fallback: If button text didn't help, stick to defaults
+  // Fallback cleanup
   if (!finalTitle || finalTitle === "Anime") finalTitle = "Anime";
 
-  console.log("🚀 Downloading ->", finalTitle, finalEp);
+  console.log("🚀 Downloading -> Title:", finalTitle, "| Ep:", finalEp);
 
   $.post('/stream', { 
       episode_token: ep_token,  
       server: server_value,     
       subtitle: sub_value,
-      title: finalTitle,        // Send Parsed Title
-      episode: finalEp          // Send Parsed Episode
+      title: finalTitle,
+      episode: finalEp
   }, function(data) {
       $("#stream").html(data).show();
       $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
