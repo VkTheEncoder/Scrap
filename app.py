@@ -154,13 +154,28 @@ def stream():
     subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
     server_value = request.form.get("server", "").strip()
 
+    # --- NEW: Generate Custom Filename ---
+    raw_title = request.form.get("title", "Anime").strip()
+    raw_ep = request.form.get("episode", "").strip()
+
+    # Clean filename (remove illegal characters)
+    safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title)
+    safe_ep = re.sub(r'[\\/*?:"<>|]', "", raw_ep)
+    
+    if safe_ep and not safe_ep.lower().startswith("ep"):
+        safe_ep = f"Ep-{safe_ep}"
+    
+    custom_filename = f"{safe_title} {safe_ep}.srt".strip()
+    # -------------------------------------
+
     stream_link = ""
     subs_map = {}
     duration_str = ""
     chosen_sub = None
     is_animexin = False
+    dm_id = ""
 
-# === 1. ANIMEXIN LOGIC (Dailymotion - Get Direct 1080p Link) ===
+    # === 1. ANIMEXIN LOGIC (Client-Side Fetching) ===
     try:
         decoded = base64.b64decode(b64d(server_value)).decode("utf-8", errors="ignore")
         if "dailymotion.com/embed/video/" in decoded:
@@ -170,81 +185,44 @@ def stream():
             src = iframe.get("src") if iframe else None
 
             if src:
-                # 1. Get Video Metadata
-                vid_id = src.split("/embed/video/")[-1].split("?")[0]
-                meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-                meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+                # Extract ID to send to Client (JS)
+                dm_id = src.split("/embed/video/")[-1].split("?")[0]
+                
+                # Metadata ONLY for Subtitles & Duration
+                try:
+                    meta_url = f"https://www.dailymotion.com/player/metadata/video/{dm_id}"
+                    meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
 
-                # 2. Get Duration
-                if "duration" in meta:
-                    duration_str = format_time(meta["duration"])
+                    if "duration" in meta:
+                        duration_str = format_time(meta["duration"])
 
-                # 3. Find the Master Playlist URL first
-                master_url = ""
-                if "qualities" in meta:
-                    for q, streams in meta["qualities"].items():
-                        for st in streams:
-                            if st.get("type") == "application/x-mpegURL":
-                                master_url = st["url"]
-                                # Extract subs while we are here
-                                subs = extract_subs_from_m3u8(master_url)
-                                subs_map = {s["lang"].lower(): s["url"] for s in subs}
-                                break
-                        if master_url: break
+                    if "qualities" in meta:
+                        for q, streams in meta["qualities"].items():
+                            for st in streams:
+                                if st.get("type") == "application/x-mpegURL":
+                                    master_url = st["url"]
+                                    subs = extract_subs_from_m3u8(master_url)
+                                    subs_map = {s["lang"].lower(): s["url"] for s in subs}
+                                    break
+                            if subs_map: break
+                except Exception as e:
+                    print("DM Metadata Error:", e)
+    except Exception:
+        pass
 
-                # 4. FETCH 1080p DIRECT LINK (Parsing the Master Playlist)
-                if master_url:
-                    try:
-                        # We must download the master list text to find the 1080p link
-                        m3u_resp = requests.get(master_url, headers=HEADERS, timeout=10)
-                        
-                        if m3u_resp.status_code == 200:
-                            lines = m3u_resp.text.splitlines()
-                            best_bw = 0
-                            direct_link = ""
-                            
-                            # Loop through lines to find highest bandwidth/resolution
-                            for i, line in enumerate(lines):
-                                if line.startswith("#EXT-X-STREAM-INF"):
-                                    # Check bandwidth to find best quality
-                                    bw_match = re.search(r"BANDWIDTH=(\d+)", line)
-                                    curr_bw = int(bw_match.group(1)) if bw_match else 0
-                                    
-                                    # If this is better than what we found, take the NEXT line as the URL
-                                    if curr_bw > best_bw:
-                                        best_bw = curr_bw
-                                        potential_link = lines[i+1]
-                                        direct_link = potential_link
-                            
-                            # If we found a link, set it!
-                            if direct_link:
-                                stream_link = direct_link
-                            else:
-                                stream_link = master_url # Fallback
-                    except Exception as e:
-                        print("Error parsing Master M3U8:", e)
-                        stream_link = master_url # Fallback
-
-    except Exception as e:
-        print("Animexin Error:", e)
-    # === 2. TOP CHINESE ANIME LOGIC (Double Decode + Regex) ===
+    # === 2. TOP CHINESE ANIME LOGIC (VidHide / Double Decode) ===
     if not is_animexin:
         try:
             print("DEBUG: Attempting TCA Logic...")
             tca_url = ""
             raw_val = b64d(server_value)
-            print(f"DEBUG: Level 1 Decode: {raw_val[:50]}...") # Print first 50 chars
-
-            # FIX: Check if the result is STILL Base64 (starts with <IFRAME encoded)
-            # 'PElG' is b64 for '<IF', 'PGlm' is b64 for '<if'
+            
+            # Double Decode check
             if raw_val.strip().startswith("PElG") or raw_val.strip().startswith("PGlm"):
                 try:
                     raw_val = base64.b64decode(raw_val).decode("utf-8", errors="ignore")
-                    print(f"DEBUG: Level 2 Decode (Success): {raw_val[:50]}...")
-                except Exception as e:
-                    print(f"DEBUG: Level 2 Decode Failed: {e}")
+                except: pass
 
-            # Now raw_val should be clean HTML. Run Regex.
             src_match = re.search(r'src=["\']([^"\']+)["\']', raw_val, re.IGNORECASE)
             
             if src_match:
@@ -252,28 +230,22 @@ def stream():
             elif "http" in raw_val or raw_val.strip().startswith("//"):
                 tca_url = raw_val
 
-            # Fix missing protocol (// -> https://)
             if tca_url and tca_url.startswith("//"):
                 tca_url = "https:" + tca_url
 
             if tca_url:
-                print(f"DEBUG: Extracted URL -> {tca_url}")
-                
-                # UPDATED LINE: Now expecting 3 values (link, sub, duration)
+                # Extract Data (VidHide Decryption + Duration)
                 stream_link, sub_url, dur = extract_tca_data(tca_url)
                 
-                # If we got a duration, save it
                 if dur:
                     duration_str = dur
                 
                 if sub_url:
                     subs_map["english"] = b64e(sub_url)
                     chosen_sub = subs_map["english"]
-            else:
-                print("DEBUG: No valid URL found (Double Decode & Regex failed).")
-
         except Exception as e:
             print(f"DEBUG: TCA Logic Crashed: {e}")
+
     # === 3. SUBTITLE SELECTION ===
     if not chosen_sub and subtitle_pref and subs_map:
         if subtitle_pref in subs_map:
@@ -284,7 +256,12 @@ def stream():
                     chosen_sub = tok
                     break
 
-    return render_template("partials/stream.html", link=stream_link, sub=chosen_sub, duration=duration_str)
+    return render_template("partials/stream.html", 
+                           link=stream_link, 
+                           sub=chosen_sub, 
+                           duration=duration_str, 
+                           dm_id=dm_id,
+                           filename=custom_filename) # <--- PASSING FILENAME
 
 # -------------------------------
 # HOME PAGE
@@ -535,6 +512,9 @@ def _fetch_text(scraper, url, headers, timeout=30):
 @app.route("/download_sub")
 def download_sub():
     token = request.args.get("url", "").strip()
+    # --- NEW: Receive filename ---
+    fname = request.args.get("filename", "subtitle.srt")
+
     if not token:
         return "No URL provided", 400
 
@@ -544,55 +524,34 @@ def download_sub():
         return "Invalid token", 400
 
     try:
-        # Create scraper with custom SSL adapter
+        # SSL Adapter (Required for TCA)
         session = cloudscraper.create_scraper()
         adapter = CustomSSLAdapter()
         session.mount("https://", adapter)
         
-        # Determine Headers based on the domain
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "*/*",
         }
 
-        # Only add Dailymotion headers if it is actually Dailymotion
         if "dailymotion.com" in url:
             headers["Origin"] = "https://www.dailymotion.com"
             headers["Referer"] = "https://www.dailymotion.com/"
-        else:
-            # For VidHide/TCA, we might need a generic referer or none
-            # Usually empty is safer for raw file downloads unless checked
-            pass 
 
-        # Recursive subtitle fetcher
         def fetch_real_sub(target_url, depth=0):
             if depth > 3: return "" 
-
-            # Use session instead of scraper directly to use the Adapter
             resp = session.get(target_url, headers=headers, timeout=20, verify=False)
-            
-            # Handle standard HTTP errors
             if resp.status_code != 200:
-                print(f"DEBUG: Sub download failed {resp.status_code} at {target_url}")
                 return ""
-
             text = resp.text.strip()
-
-            # If file is an m3u8 playlist, go deeper
             if text.startswith("#EXTM3U"):
-                lines = [
-                    urljoin(target_url, l.strip())
-                    for l in text.splitlines()
-                    if l.strip() and not l.startswith("#")
-                ]
+                lines = [urljoin(target_url, l.strip()) for l in text.splitlines() if l.strip() and not l.startswith("#")]
                 for l in lines:
                     if l.lower().endswith(".vtt") or l.lower().endswith(".webvtt"):
                         return fetch_real_sub(l, depth + 1)
-                if lines:
-                    return fetch_real_sub(lines[0], depth + 1)
+                if lines: return fetch_real_sub(lines[0], depth + 1)
             return text
 
-        # Fetch actual subtitle content
         vtt_text = fetch_real_sub(url)
 
         if not vtt_text or len(vtt_text) < 20:
@@ -601,27 +560,27 @@ def download_sub():
         # Convert to SRT
         srt_text = vtt_to_srt(vtt_text)
         
-        # Return file
+        # Fallback to VTT if conversion fails
         if not srt_text.strip():
-            # Fallback if conversion fails
+            if not fname.endswith(".vtt"): 
+                fname = fname.rsplit('.', 1)[0] + ".vtt"
+                
             return Response(
                 vtt_text,
                 mimetype="application/octet-stream",
-                headers={"Content-Disposition": 'attachment; filename="subtitle.vtt"'}
+                headers={"Content-Disposition": f'attachment; filename="{fname}"'}
             )
 
-        # Success: Return SRT
+        # Return SRT with Custom Name
         return Response(
             srt_text,
-            # using octet-stream forces the browser to download it exactly as named
-            mimetype="application/octet-stream", 
-            headers={"Content-Disposition": 'attachment; filename="subtitle.srt"'}
+            mimetype="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'}
         )
 
     except Exception as e:
         print("Subtitle download error:", e)
         return f"Error: {e}", 500
-
 # -------------------------------
 # VTT -> SRT CONVERTER
 # -------------------------------
