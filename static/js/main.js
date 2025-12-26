@@ -1,11 +1,23 @@
 console.log("main.js loaded ✅");
 
-// Global variable to track active source (default: animexin)
+// Global variables to track state
 let currentSource = "animexin";
+let globalAnimeTitle = "Anime";
+let globalEpisodeNum = "";
 
 $(document).ready(function () {
-  // Load default source on startup
   changeSource('animexin');
+
+  // ===============================
+  // 1. CAPTURE EPISODE NUMBER ON CLICK
+  // ===============================
+  // This listens for clicks on any episode button to save the number
+  $(document).on("click", ".eplister ul li a, .eplister li a", function() {
+      // Try to find the number inside the clicked element
+      let num = $(this).find(".epl-num").text() || $(this).text();
+      globalEpisodeNum = num.trim();
+      console.log("Captured Episode:", globalEpisodeNum);
+  });
 
   // ===============================
   // Handle Search Form Submit
@@ -18,19 +30,12 @@ $(document).ready(function () {
       return;
     }
 
-    // Decide which route to hit based on currentSource
-    let searchRoute = "/search"; // default animexin
-    if (currentSource === "tca") {
-        searchRoute = "/search_tca";
-    }
+    let searchRoute = (currentSource === "tca") ? "/search_tca" : "/search";
 
-    console.log(`Searching on ${currentSource} for:`, query);
-    
     $.post(searchRoute, { query: query }, function (data) {
       $("#results").html(data).show();
       $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
       $("#latest").hide();
-
       $("html, body").animate({ scrollTop: $("#results").offset().top - 30 }, 600);
     }).fail(function () {
       alert("Error while searching.");
@@ -43,9 +48,11 @@ $(document).ready(function () {
 // ===============================
 function changeSource(source) {
     currentSource = source;
-    console.log("Switched source to:", source);
-
-    // Update UI Buttons
+    // Reset Globals
+    globalAnimeTitle = "Anime";
+    globalEpisodeNum = "";
+    
+    // UI Updates
     if (source === 'animexin') {
         $("#btn-animexin").removeClass("btn-outline-primary").addClass("btn-primary");
         $("#btn-tca").removeClass("btn-primary").addClass("btn-outline-primary");
@@ -54,171 +61,124 @@ function changeSource(source) {
         $("#btn-animexin").removeClass("btn-primary").addClass("btn-outline-primary");
     }
 
-    // Clear previous views
     $("#results, #episodes, #stream").hide();
     $("#latest").show().html("<p class='text-center'>Loading latest releases...</p>");
-
-    // Load appropriate Latest
     loadLatest(1); 
 }
 
 // ===============================
-// LOAD LATEST (Dynamic)
+// LOAD LATEST
 // ===============================
 function loadLatest(page) {
-  let route = "/latest"; // default
-  if (currentSource === "tca") {
-      route = "/latest_tca";
-  }
-
+  let route = (currentSource === "tca") ? "/latest_tca" : "/latest";
   $.get(route, { page: page || 1 }, function (html) {
     $("#latest").html(html).show();
-  }).fail(function () {
-    console.warn("Failed to load Latest Release.");
-    $("#latest").html("<p>Error loading content.</p>");
   });
 }
 
-// Append next page results while keeping the same click behavior
+// Load More Button
 function loadMoreLatest(btn) {
   const $btn = $(btn);
   const next = $btn.data("next");
   if (!next) return;
 
   $btn.prop("disabled", true).text("Loading…");
-
   $.get("/latest", { page: next }, function (html) {
     const $html = $(html);
-    const itemsHtml =
-      $html.find("#latestList").html() ||
-      $html.find(".results-list").html() ||
-      "";
-
-    // append new cards
+    const itemsHtml = $html.find("#latestList").html() || $html.find(".results-list").html() || "";
     $("#latestList").append(itemsHtml);
-
-    // update or remove Next button
+    
     const $nextBtn = $html.find("#latestNextBtn");
     if ($nextBtn.length) {
       $btn.data("next", $nextBtn.data("next")).prop("disabled", false).text("Next →");
     } else {
       $btn.remove();
     }
-  }).fail(function () {
-    alert("Couldn't load more releases.");
-    $btn.prop("disabled", false).text("Next →");
   });
 }
 
-/* =========================================================
-   EXISTING FLOW: SEARCH → EPISODES → SERVERS → SUBTITLES → STREAM
-   ========================================================= */
+// ===============================
+// CORE FUNCTIONS
+// ===============================
 
-// When user selects an anime → load episodes
+// 1. Select Anime
 function selectAnime(id) {
-  console.log("Anime selected:", id);
-  $("#results").hide(); // hide search results
-  $("#latest").hide();  // hide latest when going inside a show (optional)
+  $("#results").hide(); 
+  $("#latest").hide();
 
   $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data).show();
     $("#serverSelection, #subtitleSelection, #stream").hide();
+    
+    // FIX: Grab the title immediately after loading the episodes
+    // We look for .entry-title (standard) or just the first H1 inside the episodes container
+    setTimeout(function() {
+        let title = $("#episodes .entry-title").text().trim() || $("#episodes h1").text().trim();
+        if(title) {
+            globalAnimeTitle = title;
+            console.log("Captured Title:", globalAnimeTitle);
+        }
+    }, 100);
 
-    // Smooth scroll to episodes
-    $("html, body").animate({
-      scrollTop: $("#episodes").offset().top - 30
-    }, 600);
-  }).fail(function () {
-    alert("Error loading episodes.");
+    $("html, body").animate({ scrollTop: $("#episodes").offset().top - 30 }, 600);
   });
 }
 
-// When user selects an episode → load available servers
+// 2. Select Episode
 function selectEpisode(ep_token) {
-  if (!ep_token) {
-    alert("Invalid episode token.");
-    return;
-  }
-  console.log("Episode selected:", ep_token);
-
+  if (!ep_token) return;
+  
   $.post("/get_servers", { episode_token: ep_token }, function (data) {
     $("#serverSelection").html(data).show();
     $("#subtitleSelection, #stream").hide();
-
-    // ✅ Auto-scroll to server selection
-    $("html, body").animate({
-      scrollTop: $("#serverSelection").offset().top - 20
-    }, 600);
-  }).fail(function () {
-    alert("Error loading available servers.");
+    $("html, body").animate({ scrollTop: $("#serverSelection").offset().top - 20 }, 600);
   });
 }
 
-// When user selects a server → load available subtitles
+// 3. Select Server
 function selectServer(ep_token, server_value) {
-  console.log("Server selected for:", ep_token, "| Server:", server_value);
-
   $.post("/get_subtitles", {
     episode_token: ep_token,
     server: server_value
   }, function (data) {
     $("#subtitleSelection").html(data).show();
     $("#stream").hide();
-
-    // ✅ Auto-scroll to subtitle section
-    $("html, body").animate({
-      scrollTop: $("#subtitleSelection").offset().top - 20
-    }, 600);
-  }).fail(function () {
-    alert("Error loading subtitles.");
+    $("html, body").animate({ scrollTop: $("#subtitleSelection").offset().top - 20 }, 600);
   });
 }
 
-// ===============================
-// ✅ FIX IS HERE: SELECT SUBTITLE
-// ===============================
+// 4. Select Subtitle (FINAL STEP)
 function selectSubtitle(ep_token, server_value, sub_value) {
-  console.log("Subtitle selected:", sub_value);
+  
+  // Use the captured globals!
+  let finalTitle = globalAnimeTitle;
+  let finalEp = globalEpisodeNum;
 
-  // 1. Try to get the Anime Name (usually in an h2 tag at the top of the page)
-  var animeName = $("h2").first().text().trim() || "Anime";
+  // Fallback: If global is empty, try to grab from DOM again
+  if (!finalTitle || finalTitle === "Anime") {
+       finalTitle = $(".entry-title").first().text().trim() || $("h1").first().text().trim();
+  }
 
-  // 2. Try to get the Episode Number (optional fallback)
-  var episodeNum = ""; 
+  console.log("Requesting Stream with:", finalTitle, finalEp);
 
-  // 3. Send Request to Python (WITH title and episode)
   $.post('/stream', { 
-      episode_token: ep_token,  // Use the correct variable passed to function
-      server: server_value,     // Use the correct variable passed to function
+      episode_token: ep_token,  
+      server: server_value,     
       subtitle: sub_value,
-      title: animeName,         // Sending Title
-      episode: episodeNum       // Sending Episode
+      title: finalTitle,        // <--- Sending Correct Title
+      episode: finalEp          // <--- Sending Correct Episode
   }, function(data) {
-      // Load the player
       $("#stream").html(data).show();
-      
-      // ✅ Smooth scroll to stream section
-      $("html, body").animate({
-        scrollTop: $("#stream").offset().top - 20
-      }, 600);
-
+      $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
   }).fail(function () {
     alert("Error loading stream.");
   });
 }
 
-// Process all episodes (optional feature)
 function processAllEpisodes(anime_id) {
-  console.log("Processing all episodes:", anime_id);
-
   $.post("/process_all", { anime_id: anime_id }, function (data) {
     $("#stream").html(data).show();
     $("#results, #episodes, #serverSelection, #subtitleSelection").hide();
-
-    $("html, body").animate({
-      scrollTop: $("#stream").offset().top - 20
-    }, 600);
-  }).fail(function () {
-    alert("Error processing all episodes.");
+    $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
   });
 }
