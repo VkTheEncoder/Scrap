@@ -16,7 +16,8 @@
   <div style="margin-top:15px;">
     <h3 style="margin-bottom:8px;">Subtitle File</h3>
     <a 
-      href="{{ url_for('download_sub', url=sub) }}" 
+      href="/download_sub?url={{ sub }}&filename={{ filename }}" 
+      class="btn btn-success"
       target="_blank"
       style="
         display:inline-block;
