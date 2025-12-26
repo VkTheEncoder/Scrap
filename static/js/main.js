@@ -73,9 +73,6 @@ function loadLatest(page) {
 
   $.get(route, { page: page || 1 }, function (html) {
     $("#latest").html(html).show();
-    
-    // Update "Next" button logic in the returned HTML if needed
-    // (Ensure your partials/latest.html button calls loadMoreLatest properly)
   }).fail(function () {
     console.warn("Failed to load Latest Release.");
     $("#latest").html("<p>Error loading content.</p>");
@@ -177,31 +174,34 @@ function selectServer(ep_token, server_value) {
   });
 }
 
-// When user selects subtitle → load stream info
+// ===============================
+// ✅ FIX IS HERE: SELECT SUBTITLE
+// ===============================
 function selectSubtitle(ep_token, server_value, sub_value) {
   console.log("Subtitle selected:", sub_value);
 
-  // 1. Get the Anime Name (Adjust the selector ".anime-title" to match your HTML)
-  // If your anime title is in an <h2> or <h3> tag, use $("h2").text()
-  var animeName = $("h3.title").text() || $("h2").text() || "Anime"; 
-  
-  // 2. Get the Episode Number (The text of the active/clicked button)
-  var episodeNum = $(this).text().trim(); // Or pass the variable if you have it
-  
-  // 3. Send it to Python
-  $.post('/stream', { 
-      episode_token: token, 
-      server: server,
-      title: animeName,   // <--- Sending Title
-      episode: episodeNum // <--- Sending Episode
-  }, function(data) {
-      // ... (rest of your code)
-  });
+  // 1. Try to get the Anime Name (usually in an h2 tag at the top of the page)
+  var animeName = $("h2").first().text().trim() || "Anime";
 
-    // ✅ Smooth scroll to stream section
-    $("html, body").animate({
-      scrollTop: $("#stream").offset().top - 20
-    }, 600);
+  // 2. Try to get the Episode Number (optional fallback)
+  var episodeNum = ""; 
+
+  // 3. Send Request to Python (WITH title and episode)
+  $.post('/stream', { 
+      episode_token: ep_token,  // Use the correct variable passed to function
+      server: server_value,     // Use the correct variable passed to function
+      subtitle: sub_value,
+      title: animeName,         // Sending Title
+      episode: episodeNum       // Sending Episode
+  }, function(data) {
+      // Load the player
+      $("#stream").html(data).show();
+      
+      // ✅ Smooth scroll to stream section
+      $("html, body").animate({
+        scrollTop: $("#stream").offset().top - 20
+      }, 600);
+
   }).fail(function () {
     alert("Error loading stream.");
   });
