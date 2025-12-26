@@ -2,21 +2,26 @@ console.log("main.js loaded ✅");
 
 // Global variables to track state
 let currentSource = "animexin";
-let globalAnimeTitle = "Anime";
+let globalAnimeTitle = ""; 
 let globalEpisodeNum = "";
 
 $(document).ready(function () {
   changeSource('animexin');
 
   // ===============================
-  // 1. CAPTURE EPISODE NUMBER ON CLICK
+  // 1. CAPTURE EPISODE NUMBER (CRITICAL FIX)
   // ===============================
-  // This listens for clicks on any episode button to save the number
-  $(document).on("click", ".eplister ul li a, .eplister li a", function() {
-      // Try to find the number inside the clicked element
-      let num = $(this).find(".epl-num").text() || $(this).text();
+  // Use 'body' delegation to ensure it works even after AJAX loads
+  $("body").on("click", ".eplister ul li a, .eplister ul li", function() {
+      // 1. Try to find the specific number class
+      let num = $(this).find(".epl-num").text();
+      
+      // 2. If not found, just get the text of the link itself
+      if (!num) num = $(this).text();
+      
+      // 3. Clean it up
       globalEpisodeNum = num.trim();
-      console.log("Captured Episode:", globalEpisodeNum);
+      console.log("✅ Captured Episode Click:", globalEpisodeNum);
   });
 
   // ===============================
@@ -48,8 +53,7 @@ $(document).ready(function () {
 // ===============================
 function changeSource(source) {
     currentSource = source;
-    // Reset Globals
-    globalAnimeTitle = "Anime";
+    globalAnimeTitle = ""; 
     globalEpisodeNum = "";
     
     // UI Updates
@@ -76,7 +80,6 @@ function loadLatest(page) {
   });
 }
 
-// Load More Button
 function loadMoreLatest(btn) {
   const $btn = $(btn);
   const next = $btn.data("next");
@@ -110,13 +113,15 @@ function selectAnime(id) {
     $("#episodes").html(data).show();
     $("#serverSelection, #subtitleSelection, #stream").hide();
     
-    // FIX: Grab the title immediately after loading the episodes
-    // We look for .entry-title (standard) or just the first H1 inside the episodes container
+    // ✅ FIX: Grab the title from the LOADED CONTENT, not the page header
+    // We look specifically inside the #episodes container
     setTimeout(function() {
-        let title = $("#episodes .entry-title").text().trim() || $("#episodes h1").text().trim();
-        if(title) {
-            globalAnimeTitle = title;
-            console.log("Captured Title:", globalAnimeTitle);
+        let titleCandidate = $("#episodes h1").text() || $("#episodes .entry-title").text();
+        if(titleCandidate) {
+            globalAnimeTitle = titleCandidate.trim();
+            console.log("✅ Captured Title:", globalAnimeTitle);
+        } else {
+             console.warn("⚠️ Could not find title inside #episodes");
         }
     }, 100);
 
@@ -127,6 +132,7 @@ function selectAnime(id) {
 // 2. Select Episode
 function selectEpisode(ep_token) {
   if (!ep_token) return;
+  // Note: globalEpisodeNum is already captured by the 'click' listener at top of file
   
   $.post("/get_servers", { episode_token: ep_token }, function (data) {
     $("#serverSelection").html(data).show();
@@ -154,12 +160,14 @@ function selectSubtitle(ep_token, server_value, sub_value) {
   let finalTitle = globalAnimeTitle;
   let finalEp = globalEpisodeNum;
 
-  // Fallback: If global is empty, try to grab from DOM again
-  if (!finalTitle || finalTitle === "Anime") {
-       finalTitle = $(".entry-title").first().text().trim() || $("h1").first().text().trim();
+  // Fallback: If title is missing, try one last desperate grab from the page
+  if (!finalTitle || finalTitle === "Search Anime") {
+       finalTitle = $("#episodes h1").text().trim();
   }
+  // Fallback: Default to "Anime" if still failing
+  if (!finalTitle) finalTitle = "Anime";
 
-  console.log("Requesting Stream with:", finalTitle, finalEp);
+  console.log("🚀 Requesting Stream -> Title:", finalTitle, "| Ep:", finalEp);
 
   $.post('/stream', { 
       episode_token: ep_token,  
