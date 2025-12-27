@@ -150,24 +150,21 @@ def extract_tca_data(url):
 # -------------------------------
 @app.route("/stream", methods=["POST"])
 def stream():
+    # 1. Get Params
     token = request.form.get("episode_token", "").strip()
     subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
     server_value = request.form.get("server", "").strip()
-
-    # --- NEW: Generate Custom Filename ---
+    
+    # 2. Filename Logic (Keep this, it's working nicely now)
     raw_title = request.form.get("title", "Anime").strip()
     raw_ep = request.form.get("episode", "").strip()
-
-    # Clean filename (remove illegal characters)
     safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title)
     safe_ep = re.sub(r'[\\/*?:"<>|]', "", raw_ep)
-    
     if safe_ep and not safe_ep.lower().startswith("ep"):
         safe_ep = f"Ep-{safe_ep}"
-    
     custom_filename = f"{safe_title} {safe_ep}.srt".strip()
-    # -------------------------------------
 
+    # 3. Init Variables
     stream_link = ""
     subs_map = {}
     duration_str = ""
@@ -175,7 +172,7 @@ def stream():
     is_animexin = False
     dm_id = ""
 
-    # === 1. ANIMEXIN LOGIC (Client-Side Fetching) ===
+    # === 1. ANIMEXIN LOGIC (Dailymotion) ===
     try:
         decoded = base64.b64decode(b64d(server_value)).decode("utf-8", errors="ignore")
         if "dailymotion.com/embed/video/" in decoded:
@@ -185,46 +182,82 @@ def stream():
             src = iframe.get("src") if iframe else None
 
             if src:
-                # Extract ID to send to Client (JS)
-                dm_id = src.split("/embed/video/")[-1].split("?")[0]
+                # Get Metadata
+                vid_id = src.split("/embed/video/")[-1].split("?")[0]
+                dm_id = vid_id # Save for client-side fallback if needed
                 
-                # Metadata ONLY for Subtitles & Duration
-                try:
-                    meta_url = f"https://www.dailymotion.com/player/metadata/video/{dm_id}"
-                    meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
+                meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+                meta = requests.get(meta_url, headers=HEADERS, timeout=20).json()
 
-                    if "duration" in meta:
-                        duration_str = format_time(meta["duration"])
+                if "duration" in meta:
+                    duration_str = format_time(meta["duration"])
 
-                    if "qualities" in meta:
-                        for q, streams in meta["qualities"].items():
-                            for st in streams:
-                                if st.get("type") == "application/x-mpegURL":
-                                    master_url = st["url"]
-                                    subs = extract_subs_from_m3u8(master_url)
-                                    subs_map = {s["lang"].lower(): s["url"] for s in subs}
-                                    break
-                            if subs_map: break
-                except Exception as e:
-                    print("DM Metadata Error:", e)
-    except Exception:
-        pass
+                # Find Master URL
+                master_url = ""
+                if "qualities" in meta:
+                    for q, streams in meta["qualities"].items():
+                        for st in streams:
+                            if st.get("type") == "application/x-mpegURL":
+                                master_url = st["url"]
+                                # Extract subs while here
+                                subs = extract_subs_from_m3u8(master_url)
+                                subs_map = {s["lang"].lower(): s["url"] for s in subs}
+                                break
+                        if master_url: break
 
-    # === 2. TOP CHINESE ANIME LOGIC (VidHide / Double Decode) ===
+                # --- FIX: ROBUST 1080p EXTRACTION ---
+                if master_url:
+                    # Default to master_url so we ALWAYS have a link
+                    stream_link = master_url 
+                    
+                    try:
+                        # Try to find a better direct link (vod3.cf.dmcdn...)
+                        m3u_resp = requests.get(master_url, headers=HEADERS, timeout=10)
+                        if m3u_resp.status_code == 200:
+                            lines = m3u_resp.text.splitlines()
+                            best_bw = 0
+                            direct_link = ""
+                            
+                            for i, line in enumerate(lines):
+                                if line.startswith("#EXT-X-STREAM-INF"):
+                                    # Parse Bandwidth
+                                    bw_match = re.search(r"BANDWIDTH=(\d+)", line)
+                                    curr_bw = int(bw_match.group(1)) if bw_match else 0
+                                    
+                                    # Find the URL (it's the next non-empty, non-comment line)
+                                    for j in range(i + 1, len(lines)):
+                                        next_line = lines[j].strip()
+                                        if next_line and not next_line.startswith("#"):
+                                            if curr_bw > best_bw:
+                                                best_bw = curr_bw
+                                                direct_link = next_line
+                                            break # Found URL for this tag, stop searching
+                            
+                            # If we found a better link, upgrade to it
+                            if direct_link:
+                                stream_link = direct_link
+                    except Exception as e:
+                        print(f"Direct Link Parse Error: {e}")
+                        # stream_link stays as master_url (Safe Fallback)
+
+    except Exception as e:
+        print("Animexin Error:", e)
+
+
+    # === 2. TOP CHINESE ANIME LOGIC (VidHide) ===
     if not is_animexin:
         try:
             print("DEBUG: Attempting TCA Logic...")
             tca_url = ""
             raw_val = b64d(server_value)
             
-            # Double Decode check
+            # Double Decode
             if raw_val.strip().startswith("PElG") or raw_val.strip().startswith("PGlm"):
                 try:
                     raw_val = base64.b64decode(raw_val).decode("utf-8", errors="ignore")
                 except: pass
 
             src_match = re.search(r'src=["\']([^"\']+)["\']', raw_val, re.IGNORECASE)
-            
             if src_match:
                 tca_url = src_match.group(1)
             elif "http" in raw_val or raw_val.strip().startswith("//"):
@@ -234,15 +267,13 @@ def stream():
                 tca_url = "https:" + tca_url
 
             if tca_url:
-                # Extract Data (VidHide Decryption + Duration)
-                stream_link, sub_url, dur = extract_tca_data(tca_url)
-                
-                if dur:
-                    duration_str = dur
-                
-                if sub_url:
-                    subs_map["english"] = b64e(sub_url)
+                s_link, s_sub, s_dur = extract_tca_data(tca_url)
+                if s_link: stream_link = s_link
+                if s_dur: duration_str = s_dur
+                if s_sub:
+                    subs_map["english"] = b64e(s_sub)
                     chosen_sub = subs_map["english"]
+
         except Exception as e:
             print(f"DEBUG: TCA Logic Crashed: {e}")
 
@@ -261,7 +292,7 @@ def stream():
                            sub=chosen_sub, 
                            duration=duration_str, 
                            dm_id=dm_id,
-                           filename=custom_filename) # <--- PASSING FILENAME
+                           filename=custom_filename)
 
 # -------------------------------
 # HOME PAGE
