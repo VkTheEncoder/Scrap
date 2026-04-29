@@ -1,0 +1,1043 @@
+
+import base64
+from flask import Flask, render_template, request, Response
+import requests
+from bs4 import BeautifulSoup
+import re
+from urllib.parse import urljoin, urlparse
+import cloudscraper
+import jsbeautifier
+import ssl
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
+import yt_dlp
+from io import BytesIO
+from flask import send_file, jsonify
+
+app = Flask(__name__)
+# Custom Adapter to fix SSL Handshake Failures
+class CustomSSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        # Create a context that permits legacy/older ciphers (SECLEVEL=1)
+        ctx = create_urllib3_context(ciphers='DEFAULT@SECLEVEL=1')
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs['ssl_context'] = ctx
+        return super(CustomSSLAdapter, self).init_poolmanager(*args, **kwargs)
+
+BASE_URL = "https://animexin.dev"
+BASE_URL_TCA = "https://topchineseanime.xyz"
+
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+def format_time(seconds):
+    if not seconds:
+        return ""
+    try:
+        seconds = int(seconds)
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        if h > 0:
+            return f"{h}h {m}m {s}s"
+        return f"{m}m {s}s"
+    except:
+        return ""
+
+# -------------------------------
+# RUMBLE SUBTITLE EXTRACTOR (UPDATED LOGIC)
+# -------------------------------
+def extract_rumble_subs(embed_url):
+    # 1. Configuration to extract info without downloading the video
+    ydl_opts = {
+        'skip_download': True, 
+        'quiet': True,
+        'impersonate': False, # Anti-bot error roknene ke liye
+        
+        # UNCOMMENT THE LINE BELOW if the video is Premium/Private and you are running on Local PC Chrome:
+        # Note: Render cloud par Chrome cookies nahi hoti, isliye wahan isko comment hi rehne dena.
+        # 'cookiesfrombrowser': ('chrome',), 
+    }
+    
+    subs = []
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            print(f"Fetching subtitle info for: {embed_url}\nPlease wait...")
+            info = ydl.extract_info(embed_url, download=False)
+            
+            # Extract manual and automatic subtitles from the video info
+            subtitles = info.get('subtitles', {})
+            auto_captions = info.get('automatic_captions', {})
+            
+            all_subs = {}
+            
+            # Manual Subtitles ko pehle priority
+            for lang, tracks in subtitles.items():
+                for t in tracks:
+                    if t.get('ext') in ['vtt', 'srt']:
+                        all_subs[lang] = {'url': t.get('url'), 'type': 'Manual Subtitle'}
+                        break
+            
+            # Auto-Generated ko baad mein check karenge (Agar manual nahi mila)
+            for lang, tracks in auto_captions.items():
+                if lang not in all_subs: 
+                    for t in tracks:
+                        if t.get('ext') in ['vtt', 'srt']:
+                            all_subs[lang] = {'url': t.get('url'), 'type': 'Auto-Generated'}
+                            break
+            
+            # Frontend (HTML) dropdown ke liye format ready karna
+            for lang, data in all_subs.items():
+                subs.append({
+                    "lang": lang, 
+                    "name": f"{lang} ({data['type']})", # Example: "en (Manual Subtitle)"
+                    "url": b64e(data['url']) # URL ko base64 encode kiya taaki tumhare existing downloader me fit ho jaye
+                })
+                
+    except Exception as e:
+        print(f"Rumble Sub Error: {e}")
+        print("If this is a Premium video, make sure to uncomment the 'cookiesfrombrowser' line locally.")
+        
+    return subs
+
+def b64e(s: str) -> str:
+    return base64.urlsafe_b64encode(s.encode("utf-8")).decode("utf-8")
+
+def b64d(s: str) -> str:
+    return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8")
+
+
+def decode_server_payloads(server_value: str):
+    payloads = []
+    if not server_value:
+        return payloads
+
+    try:
+        outer = b64d(server_value)
+    except Exception:
+        outer = server_value
+
+    for candidate in [outer, outer.strip()]:
+        if candidate and candidate not in payloads:
+            payloads.append(candidate)
+
+    normalized = outer.strip()
+    if normalized:
+        try:
+            inner = base64.b64decode(normalized).decode("utf-8", errors="ignore")
+            if inner and inner not in payloads:
+                payloads.append(inner)
+        except Exception:
+            pass
+
+    return payloads
+
+
+def extract_dailymotion_video_id(payloads) -> str:
+    if isinstance(payloads, str):
+        payloads = [payloads]
+
+    patterns = [
+        r'dailymotion\.com/(?:embed/)?video/([A-Za-z0-9_-]+)',
+        r'dailymotion\.com/player/metadata/video/([A-Za-z0-9_-]+)',
+        r'[?&]video=([A-Za-z0-9_-]+)',
+        r'["\']videoId["\']\s*[:=]\s*["\']([A-Za-z0-9_-]+)',
+        r'["\']dm[_-]?id["\']\s*[:=]\s*["\']([A-Za-z0-9_-]+)',
+    ]
+
+    for payload in payloads or []:
+        if not payload:
+            continue
+        for pattern in patterns:
+            match = re.search(pattern, payload, re.IGNORECASE)
+            if match:
+                return match.group(1)
+
+    return ""
+
+
+def extract_matching_url(payloads, keyword: str) -> str:
+    if isinstance(payloads, str):
+        payloads = [payloads]
+
+    patterns = [
+        rf'https?://[^"\'>\s]*{re.escape(keyword)}[^"\'>\s]*',
+        rf'//[^"\'>\s]*{re.escape(keyword)}[^"\'>\s]*',
+    ]
+
+    for payload in payloads or []:
+        if not payload:
+            continue
+        for pattern in patterns:
+            match = re.search(pattern, payload, re.IGNORECASE)
+            if match:
+                url = match.group(0).strip()
+                return "https:" + url if url.startswith("//") else url
+
+    return ""
+
+
+def build_animexin_series_candidate(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return ""
+
+    path = parsed.path.rstrip("/")
+    cleaned_path = re.sub(r'-episode-\d+[^/]*$', '', path, flags=re.IGNORECASE)
+    if cleaned_path and cleaned_path != path:
+        return f"{parsed.scheme}://{parsed.netloc}{cleaned_path}/"
+    return ""
+
+
+def extract_animexin_series_url(page_url: str, soup: BeautifulSoup, title: str = "") -> str:
+    candidates = []
+    base_host = urlparse(page_url).netloc
+
+    def add_candidate(href: str):
+        if not href:
+            return
+        normalized = urljoin(page_url, href.strip())
+        host = urlparse(normalized).netloc
+        if base_host and host and host != base_host:
+            return
+        if normalized not in candidates:
+            candidates.append(normalized)
+
+    for link in soup.select("a[href]"):
+        text = link.get_text(" ", strip=True).lower()
+        if "all episodes" in text:
+            add_candidate(link.get("href", ""))
+
+    add_candidate(build_animexin_series_candidate(page_url))
+
+    clean_title = re.sub(r'\bepisode\b.*$', '', title, flags=re.IGNORECASE).strip(" -")
+    title_hint = clean_title[:12].lower() if clean_title else ""
+
+    for link in soup.select("a[href]"):
+        href = link.get("href", "")
+        text = link.get_text(" ", strip=True)
+        text_lower = text.lower()
+
+        if "/anime/" in href:
+            add_candidate(href)
+
+        if title_hint and title_hint in text_lower:
+            add_candidate(href)
+
+    for candidate in candidates:
+        if candidate.rstrip("/") == page_url.rstrip("/"):
+            continue
+        if re.search(r'-episode-\d+', urlparse(candidate).path, re.IGNORECASE):
+            continue
+        return candidate
+
+    return ""
+
+
+def load_animexin_episode_page(url: str):
+    response = requests.get(url, headers=HEADERS, timeout=30)
+    soup = BeautifulSoup(response.text, "html.parser")
+    title_el = soup.select_one("h1.entry-title")
+    title = title_el.get_text(strip=True) if title_el else ""
+    ep_elements = soup.select(".eplister ul li")
+
+    if not ep_elements:
+        series_url = extract_animexin_series_url(url, soup, title)
+        if series_url:
+            print(f"DEBUG: No direct episode list on {url}. Retrying series page -> {series_url}")
+            response = requests.get(series_url, headers=HEADERS, timeout=30)
+            soup = BeautifulSoup(response.text, "html.parser")
+            title_el = soup.select_one("h1.entry-title")
+            title = title_el.get_text(strip=True) if title_el else title
+            ep_elements = soup.select(".eplister ul li")
+            url = series_url
+
+    return url, title, ep_elements
+
+# -------------------------------
+# HELPER: BRUTE FORCE EXTRACTOR
+# -------------------------------
+def extract_tca_data(url):
+    print(f"DEBUG: Scraper scanning: {url}")
+    try:
+        domain = url.split("/")[2]
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": f"https://{domain}/",
+            "Origin": f"https://{domain}"
+        }
+        
+        r = requests.get(url, headers=headers, timeout=20)
+        html = r.text
+        
+        # Decrypt VidHide/Packed JS if present
+        if "eval(function" in html:
+            try:
+                html = jsbeautifier.beautify(html)
+            except: pass
+
+        stream_link = ""
+        sub_url = ""
+        duration_str = ""
+
+        # 1. Video Extraction
+        file_matches = re.findall(r'file\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']', html)
+        if file_matches:
+            stream_link = file_matches[0]
+        else:
+            m3u8_match = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', html)
+            if m3u8_match:
+                stream_link = m3u8_match.group(1)
+
+        if stream_link:
+            stream_link = stream_link.replace('\\/', '/')
+            print(f"DEBUG: Found Video -> {stream_link}")
+            
+            # --- DURATION CALCULATION (Updated for Master Playlists) ---
+            try:
+                # A. Fetch the M3U8 file
+                m3u_resp = requests.get(stream_link, headers=headers, timeout=10)
+                if m3u_resp.status_code == 200:
+                    m3u_text = m3u_resp.text
+                    
+                    # B. Check if it's a Master Playlist (contains multiple qualities)
+                    if "#EXT-X-STREAM-INF" in m3u_text:
+                        # We need to fetch one of the sub-playlists to get duration
+                        lines = m3u_text.splitlines()
+                        for line in lines:
+                            if line.strip() and not line.startswith("#"):
+                                # Found a URL to a chunklist
+                                sub_url_list = line
+                                if not sub_url_list.startswith("http"):
+                                    sub_url_list = urljoin(stream_link, sub_url_list)
+                                
+                                # Fetch the actual media playlist
+                                sub_resp = requests.get(sub_url_list, headers=headers, timeout=10)
+                                if sub_resp.status_code == 200:
+                                    m3u_text = sub_resp.text # Replace text with the media list
+                                break
+                    
+                    # C. Sum up the seconds
+                    total_seconds = 0.0
+                    for line in m3u_text.splitlines():
+                        if line.startswith("#EXTINF:"):
+                            try:
+                                # Line format is like: #EXTINF:10.000,
+                                sec = float(line.split(":")[1].split(",")[0])
+                                total_seconds += sec
+                            except: pass
+                    
+                    # D. Format Time
+                    if total_seconds > 0:
+                        m, s = divmod(int(total_seconds), 60)
+                        h, m = divmod(m, 60)
+                        if h > 0:
+                            duration_str = f"{h}h {m}m {s}s"
+                        else:
+                            duration_str = f"{m}m {s}s"
+                        print(f"DEBUG: Calculated Duration -> {duration_str}")
+            except Exception as e:
+                print(f"DEBUG: Duration Calc Failed: {e}")
+
+        # 2. Subtitle Extraction
+        vtt_matches = re.findall(r'["\']([^"\']+\.vtt)["\']', html)
+        for vtt in vtt_matches:
+            if not vtt.startswith("http"):
+                vtt = urljoin(url, vtt)
+            sub_url = vtt
+            if 'eng' in vtt.lower() or 'english' in vtt.lower():
+                break 
+
+        return stream_link, sub_url, duration_str
+
+    except Exception as e:
+        print(f"DEBUG: Extraction Error: {e}")
+        return "", "", ""
+# -------------------------------
+# STREAM ROUTE (UPDATED)
+# -------------------------------
+@app.route("/stream", methods=["POST"])
+def stream():
+    # 1. Get Params
+    token = request.form.get("episode_token", "").strip()
+    subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
+    server_value = request.form.get("server", "").strip()
+    
+    # 2. Filename Logic
+    raw_title = request.form.get("title", "Anime").strip()
+    raw_ep = request.form.get("episode", "").strip()
+    safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title)
+    safe_ep = re.sub(r'[\\/*?:"<>|]', "", raw_ep)
+    if safe_ep and not safe_ep.lower().startswith("ep"):
+        safe_ep = f"Ep-{safe_ep}"
+    custom_filename = f"{safe_title} {safe_ep}.srt".strip()
+
+    # 3. Init Variables
+    stream_link = ""
+    subs = []
+    subs_map = {}
+    duration_str = ""
+    chosen_sub = None
+    is_animexin = False
+    dm_id = ""
+    server_payloads = decode_server_payloads(server_value)
+    decoded_server = server_payloads[0] if server_payloads else ""
+    has_dailymotion_payload = any("dailymotion" in payload.lower() for payload in server_payloads)
+
+    # ==========================================
+    # === 1. RUMBLE LOGIC (COMPLETELY SEPARATE) ===
+    # ==========================================
+    try:
+        rumble_payload = extract_matching_url(server_payloads, "rumble.com")
+        rumble_match = re.search(r'src=["\']([^"\']*rumble\.com/embed/[^"\']+)["\']', decoded_server, re.IGNORECASE)
+
+        if rumble_match:
+            rumble_payload = rumble_match.group(1)
+
+        if rumble_payload:
+            if rumble_payload.startswith("//"):
+                rumble_payload = "https:" + rumble_payload
+
+            stream_link = rumble_payload
+            subs = extract_rumble_subs(rumble_payload)
+            subs_map = {s["lang"].lower(): s["url"] for s in subs}
+    except Exception as e:
+        print("Rumble Error in /stream:", e)
+
+    
+    # === 1. ANIMEXIN LOGIC (Dailymotion) ===
+    try:
+        vid_id = extract_dailymotion_video_id(server_payloads)
+        direct_dm_url = extract_matching_url(server_payloads, "dailymotion")
+
+        if has_dailymotion_payload:
+            is_animexin = True
+        if vid_id:
+            dm_id = vid_id
+
+            meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+            dm_headers = HEADERS.copy()
+            dm_headers["Referer"] = f"https://www.dailymotion.com/embed/video/{vid_id}"
+
+            meta = requests.get(meta_url, headers=dm_headers, timeout=20).json()
+
+            if "duration" in meta:
+                duration_str = format_time(meta["duration"])
+
+            if "subtitles" in meta and "data" in meta["subtitles"]:
+                for lang_code, info in meta["subtitles"]["data"].items():
+                    label = info.get("label", lang_code)
+                    urls = info.get("urls", [])
+
+                    if urls:
+                        subs.append({
+                            "lang": lang_code,
+                            "name": label,
+                            "url": b64e(urls[0])
+                        })
+
+            if not subs and "qualities" in meta:
+                master_url = ""
+                if "auto" in meta["qualities"]:
+                    for s in meta["qualities"]["auto"]:
+                        if s.get("type") == "application/x-mpegURL":
+                            master_url = s["url"]
+                            break
+                if not master_url:
+                    for q, streams in meta["qualities"].items():
+                        for st in streams:
+                            if st.get("type") == "application/x-mpegURL":
+                                master_url = st["url"]
+                                break
+                        if master_url:
+                            break
+
+                if master_url:
+                    found = extract_subs_from_m3u8(master_url)
+                    if found:
+                        subs.extend(found)
+
+            subs_map = {s["lang"].lower(): s["url"] for s in subs}
+            stream_link = f"https://www.dailymotion.com/embed/video/{dm_id}?autoplay=1"
+        elif direct_dm_url:
+            stream_link = direct_dm_url
+
+    except Exception as e:
+        print("Animexin Error:", e)
+
+    # === 2. TOP CHINESE ANIME LOGIC (VidHide) ===
+    if not is_animexin:
+        try:
+            tca_url = ""
+            raw_val = b64d(server_value)
+            
+            if raw_val.strip().startswith("PElG") or raw_val.strip().startswith("PGlm"):
+                try:
+                    raw_val = base64.b64decode(raw_val).decode("utf-8", errors="ignore")
+                except: pass
+
+            src_match = re.search(r'src=["\']([^"\']+)["\']', raw_val, re.IGNORECASE)
+            if src_match:
+                tca_url = src_match.group(1)
+            elif "http" in raw_val or raw_val.strip().startswith("//"):
+                tca_url = raw_val
+
+            if tca_url and tca_url.startswith("//"):
+                tca_url = "https:" + tca_url
+
+            if tca_url:
+                s_link, s_sub, s_dur = extract_tca_data(tca_url)
+                if s_link: stream_link = s_link
+                if s_dur: duration_str = s_dur
+                if s_sub:
+                    subs_map["english"] = b64e(s_sub)
+                    chosen_sub = subs_map["english"]
+
+        except Exception as e:
+            print(f"DEBUG: TCA Logic Crashed: {e}")
+
+    # === 3. SUBTITLE SELECTION ===
+    if not chosen_sub and subtitle_pref and subs_map:
+        if subtitle_pref in subs_map:
+            chosen_sub = subs_map[subtitle_pref]
+        else:
+            for lang, tok in subs_map.items():
+                if lang.split("-")[0] == subtitle_pref.split("-")[0]:
+                    chosen_sub = tok
+                    break
+
+    return render_template("partials/stream.html", 
+                           link=stream_link, 
+                           sub=chosen_sub, 
+                           duration=duration_str, 
+                           dm_id=dm_id,
+                           filename=custom_filename)
+    
+# -------------------------------
+# HOME PAGE
+# -------------------------------
+@app.route("/", methods=["GET"])
+def home():
+    return render_template("index.html")
+
+# -------------------------------
+# SEARCH RESULTS
+# -------------------------------
+@app.route("/search", methods=["POST"])
+def search():
+    query = request.form.get("query", "").strip()
+    results = []
+
+    if query:
+        search_url = f"{BASE_URL}/?s={query}"
+        r = requests.get(search_url, headers=HEADERS, timeout=30)
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        for post in soup.select("article.bs"):
+            a = post.select_one("a")
+            link = a["href"] if a and a.has_attr("href") else ""
+            title_el = post.select_one(".eggtitle")
+            ep_el = post.select_one(".eggepisode")
+            img_el = post.select_one("img")
+
+            title = title_el.get_text(strip=True) if title_el else "No Title"
+            episode = f" {ep_el.get_text(strip=True)}" if ep_el else ""
+            img = img_el["src"] if img_el and img_el.has_attr("src") else ""
+
+            results.append({
+                "title": (title + episode).strip(),
+                "img": img,
+                "post_token": b64e(link)
+            })
+
+    return render_template("partials/results.html", results=results)
+
+
+# -------------------------------
+# LATEST RELEASE (home cards)
+# -------------------------------
+@app.route("/latest", methods=["GET"])
+def latest():
+    # /latest?page=1 → https://animexin.dev/
+    # /latest?page=2 → https://animexin.dev/page/2/
+    import re
+    page = int((request.args.get("page") or 1))
+    url = BASE_URL if page == 1 else f"{BASE_URL}/page/{page}/"
+
+    r = requests.get(url, headers=HEADERS, timeout=30)
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    results = []
+    # Matches the exact structure you shared
+    for art in soup.select("div.listupd.normal div.excstf article.bs"):
+        a = art.select_one("a[href]")
+        if not a:
+            continue
+        link = a["href"]
+
+        img_el = a.select_one("img")
+        title_el = a.select_one(".eggtitle")
+        ep_el   = a.select_one(".eggepisode")
+        h2_el   = art.select_one(".tt h2")
+
+        # Build a clean card title
+        title = ""
+        if title_el:
+            title = title_el.get_text(strip=True)
+        if ep_el:
+            title = (title + " " + ep_el.get_text(strip=True)).strip()
+        if not title and h2_el:
+            title = h2_el.get_text(strip=True)
+
+        img = img_el["src"] if img_el and img_el.has_attr("src") else ""
+
+        results.append({
+            "title": title,
+            "img": img,
+            "post_token": b64e(link)
+        })
+
+    # Detect "Next" page
+    next_page = None
+    nxt = soup.select_one("div.hpage a.r[href]")
+    if nxt and nxt["href"]:
+        m = re.search(r"/page/(\d+)/", nxt["href"])
+        next_page = int(m.group(1)) if m else (page + 1)
+
+    return render_template("partials/latest.html",
+                           results=results,
+                           next_page=next_page)
+
+# -------------------------------
+# EPISODES LIST (FIXED: Targeted Redirect)
+# -------------------------------
+@app.route("/episodes", methods=["POST"])
+def episodes():
+    token = request.form.get("anime_id", "")
+    url = b64d(token) if token else ""
+    episodes = []
+    title = ""
+
+    if url:
+        try:
+            _, title, ep_elements = load_animexin_episode_page(url)
+
+            # 3. Parse the episodes (Standard Logic)
+            for li in ep_elements:
+                a = li.select_one("a")
+                num = li.select_one(".epl-num")
+                ep_title = li.select_one(".epl-title")
+                
+                if a and a.has_attr("href"):
+                    href = a["href"]
+                    num_text = num.get_text(strip=True) if num else "?"
+                    
+                    # If num is missing, try to extract from text
+                    if num_text == "?":
+                        match = re.search(r'ep\s*(\d+)', a.get_text(), re.I)
+                        if match: num_text = match.group(1)
+
+                    episodes.append({
+                        "num": num_text,
+                        "title": ep_title.get_text(strip=True) if ep_title else "",
+                        "episode_token": b64e(href)
+                    })
+
+        except Exception as e:
+            print(f"Error loading episodes: {e}")
+
+    return render_template("partials/episodes.html", eps=episodes, anime_id=token, title=title)
+
+
+@app.route("/process_all", methods=["POST"])
+def process_all():
+    token = request.form.get("anime_id", "")
+    url = b64d(token) if token else ""
+    if not url:
+        return "Invalid anime ID"
+
+    episodes = []
+    _, _, ep_elements = load_animexin_episode_page(url)
+    for li in ep_elements:
+        a = li.select_one("a")
+        num = li.select_one(".epl-num")
+        if a and a.has_attr("href"):
+            episodes.append({"num": num.get_text(strip=True) if num else "?", "url": a["href"]})
+
+    return render_template("partials/all_streams.html", eps=episodes)
+
+# -------------------------------
+# GET AVAILABLE SERVERS FOR EPISODE
+# -------------------------------
+@app.route("/get_servers", methods=["POST"])
+def get_servers():
+    token = request.form.get("episode_token", "")
+    url = b64d(token)
+    servers = []
+
+    r = requests.get(url, headers=HEADERS, timeout=30)
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    for option in soup.select("select.mirror option"):
+        label = option.get_text(strip=True)
+        encoded = option.get("value", "")
+        if encoded:
+            servers.append({"label": label, "value": b64e(encoded)})
+
+    return render_template("partials/servers.html", servers=servers, episode_token=token)
+
+# -------------------------------
+# GET SUBTITLES FOR SELECTED SERVER
+# -------------------------------
+@app.route("/get_subtitles", methods=["POST"])
+def get_subtitles():
+    ep_token = request.form.get("episode_token", "")
+    server_value = request.form.get("server", "")
+    subs = []
+
+    try:
+        payloads = decode_server_payloads(server_value)
+        vid_id = extract_dailymotion_video_id(payloads)
+        if vid_id:
+            meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+            
+            # Use Referer (Your Script's Fix)
+            dm_headers = HEADERS.copy()
+            dm_headers["Referer"] = f"https://www.dailymotion.com/embed/video/{vid_id}"
+            
+            meta = requests.get(meta_url, headers=dm_headers, timeout=20).json()
+
+            # 2. METHOD A: Direct Metadata (Your Script's Logic)
+            if "subtitles" in meta and "data" in meta["subtitles"]:
+                for lang_code, info in meta["subtitles"]["data"].items():
+                    label = info.get("label", lang_code)
+                    urls = info.get("urls", [])
+                    if urls:
+                        subs.append({
+                            "lang": lang_code,
+                            "name": label,
+                            "url": b64e(urls[0])
+                        })
+
+            # 3. METHOD B: HLS Fallback
+            if not subs and "qualities" in meta:
+                target_streams = []
+                if "auto" in meta["qualities"]:
+                    target_streams.extend(meta["qualities"]["auto"])
+                for q, streams in meta["qualities"].items():
+                    if q != "auto": target_streams.extend(streams)
+
+                for s in target_streams:
+                    if s.get("type") == "application/x-mpegURL":
+                        found = extract_subs_from_m3u8(s["url"])
+                        if found:
+                            subs = found
+                            break
+
+    except Exception as e:
+        print(f"Error in get_subtitles: {e}")
+
+    return render_template("partials/subtitles.html", subtitles=subs, ep_token=ep_token, server_value=server_value)
+
+# -------------------------------
+# SUBTITLE EXTRACTOR
+# -------------------------------
+def extract_subs_from_m3u8(m3u8_url: str):
+    subs = []
+    try:
+        r = requests.get(m3u8_url, headers=HEADERS, timeout=20)
+        text = r.text
+
+        for line in text.splitlines():
+            if line.startswith("#EXT-X-MEDIA") and "TYPE=SUBTITLES" in line:
+                attrs = dict(re.findall(r'([A-Z0-9\-]+)="(.*?)"', line))
+                uri = attrs.get("URI")
+                if uri:
+                    sub_m3u8 = urljoin(m3u8_url, uri)
+                    lang = attrs.get("LANGUAGE") or attrs.get("ASSOC-LANGUAGE") or attrs.get("NAME") or "unknown"
+                    name = attrs.get("NAME") or lang
+                    subs.append({"lang": lang, "name": name, "url": b64e(sub_m3u8)})
+
+        for line in text.splitlines():
+            if line and not line.startswith("#") and ".vtt" in line:
+                vtt_url = urljoin(m3u8_url, line.strip())
+                subs.append({"lang": "unknown", "name": vtt_url.rsplit("/", 1)[-1], "url": b64e(vtt_url)})
+
+        seen = set()
+        unique = []
+        for s in subs:
+            if s["url"] not in seen:
+                unique.append(s)
+                seen.add(s["url"])
+        return unique
+
+    except Exception as e:
+        print("Error extracting subs:", e)
+        return []
+
+# -------------------------------
+# DOWNLOAD SUB AS .SRT (FIXED)
+# -------------------------------
+def _fetch_text(scraper, url, headers, timeout=30):
+    r = scraper.get(url, headers=headers, timeout=timeout)
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code} for {url}")
+    txt = r.text or ""
+    if not txt.strip():
+        try:
+            txt = r.content.decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+    return txt
+
+@app.route("/download_sub")
+def download_sub():
+    token = request.args.get("url", "").strip()
+    fname = request.args.get("filename", "subtitle.srt")
+
+    if not token:
+        return "No URL provided", 400
+
+    # === FIX: Sanitize Filename for HTTP Headers ===
+    # 1. Replace common non-ASCII characters with safe versions
+    fname = fname.replace("’", "'").replace("–", "-").replace("“", "").replace("”", "")
+    
+    # 2. Force convert to ASCII (removes any other hidden symbols like emojis or chinese chars)
+    # This prevents the "Invalid HTTP Header" crash
+    fname = fname.encode("ascii", "ignore").decode("ascii")
+    
+    # 3. Remove double quotes which break the header syntax
+    fname = fname.replace('"', '').strip()
+    # ===============================================
+
+    try:
+        url = b64d(token)
+    except Exception:
+        return "Invalid token", 400
+
+    try:
+        # SSL Adapter Setup
+        session = cloudscraper.create_scraper()
+        adapter = CustomSSLAdapter()
+        session.mount("https://", adapter)
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+        }
+
+        if "dailymotion.com" in url:
+            headers["Origin"] = "https://www.dailymotion.com"
+            headers["Referer"] = "https://www.dailymotion.com/"
+
+        def fetch_real_sub(target_url, depth=0):
+            if depth > 3: return "" 
+            resp = session.get(target_url, headers=headers, timeout=20, verify=False)
+            if resp.status_code != 200:
+                return ""
+            text = resp.text.strip()
+            if text.startswith("#EXTM3U"):
+                lines = [urljoin(target_url, l.strip()) for l in text.splitlines() if l.strip() and not l.startswith("#")]
+                for l in lines:
+                    if l.lower().endswith(".vtt") or l.lower().endswith(".webvtt"):
+                        return fetch_real_sub(l, depth + 1)
+                if lines: return fetch_real_sub(lines[0], depth + 1)
+            return text
+
+        vtt_text = fetch_real_sub(url)
+
+        if not vtt_text or len(vtt_text) < 20:
+            return "No valid subtitle content found.", 502
+
+        # Convert to SRT (using your fixed vtt_to_srt function)
+        srt_text = vtt_to_srt(vtt_text)
+        
+        # Fallback to VTT if conversion fails
+        if not srt_text.strip():
+            if not fname.endswith(".vtt"): 
+                fname = fname.rsplit('.', 1)[0] + ".vtt"
+                
+            return Response(
+                vtt_text,
+                mimetype="application/octet-stream",
+                headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+            )
+
+        # Return SRT with Safe Filename
+        return Response(
+            srt_text,
+            mimetype="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+        )
+
+    except Exception as e:
+        print("Subtitle download error:", e)
+        return f"Error: {e}", 500
+
+
+# -------------------------------
+# VTT -> SRT CONVERTER (ROBUST FIX)
+# -------------------------------
+# -------------------------------
+# VTT -> SRT CONVERTER (FINAL FIX)
+# -------------------------------
+def vtt_to_srt(vtt_text: str) -> str:
+    lines = vtt_text.splitlines()
+    out, buf, idx = [], [], 1
+
+    def normalize_timestamp(ts):
+        ts = ts.replace('.', ',')
+        ts = ts.split(" ")[0].strip()
+        if ts.count(':') == 1:
+            return "00:" + ts
+        return ts
+
+    def flush():
+        nonlocal idx, buf, out
+        if not buf:
+            return
+        t_idx = -1
+        # Locate timestamp line
+        for i, l in enumerate(buf):
+            if "-->" in l:
+                t_idx = i
+                break
+        if t_idx == -1:
+            buf = []
+            return
+        
+        # Normalize Timestamp
+        raw_time_line = buf[t_idx]
+        if "-->" in raw_time_line:
+            start, end = raw_time_line.split("-->")
+            start = normalize_timestamp(start.strip())
+            end = normalize_timestamp(end.strip())
+            time_line = f"{start} --> {end}"
+        else:
+            time_line = raw_time_line
+
+        # === THE FIX IS HERE ===
+        # Only take lines AFTER the timestamp (i > t_idx).
+        # Previously (i != t_idx) included the ID line (i < t_idx) as text.
+        text_lines = [l for i, l in enumerate(buf) if i > t_idx and l.strip()]
+        
+        cleaned_lines = []
+        for txt in text_lines:
+            txt = txt.strip()
+            
+            # Clean "Number + \N" artifacts (e.g. "145\N") just in case
+            txt = re.sub(r'^\s*\d+\s*\\N', '', txt)
+            
+            # Convert \N to newlines (Standard SRT format)
+            txt = txt.replace(r'\N', '\n')
+            
+            if txt:
+                cleaned_lines.append(txt)
+
+        if cleaned_lines:
+            out.append(f"{idx}\n{time_line}\n" + "\n".join(cleaned_lines) + "\n")
+            idx += 1
+        
+        buf = []
+
+    for raw in lines:
+        l = raw.rstrip("\n")
+        # Filter headers
+        if l.startswith(("WEBVTT", "NOTE", "STYLE", "REGION", "Kind:", "Language:")):
+            continue
+        if not l.strip():
+            flush()
+        else:
+            buf.append(l)
+    flush()
+    return "\n".join(out).strip() + ("\n" if out else "")
+
+
+# -------------------------------
+# TOP CHINESE ANIME - LATEST
+# -------------------------------
+@app.route("/latest_tca", methods=["GET"])
+def latest_tca():
+    page = int((request.args.get("page") or 1))
+    # URL structure might differ slightly, usually /page/2/
+    url = BASE_URL_TCA if page == 1 else f"{BASE_URL_TCA}/page/{page}/"
+
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        soup = BeautifulSoup(r.text, "html.parser")
+        results = []
+
+        # Target the list container. 
+        # Based on standard themes, it's often 'div.listupd article.bs' or similar.
+        for art in soup.select("div.listupd article.bs"):
+            a = art.select_one("a[href]")
+            if not a: continue
+            
+            link = a["href"]
+            img_el = art.select_one("img")
+            title_el = art.select_one(".tt") or art.select_one(".eggtitle") 
+            ep_el = art.select_one(".eggepisode") or art.select_one(".epx")
+
+            title = title_el.get_text(strip=True) if title_el else "Unknown"
+            ep = ep_el.get_text(strip=True) if ep_el else ""
+            
+            # Handle lazy loading images if present (data-src)
+            img = ""
+            if img_el:
+                img = img_el.get("src") or img_el.get("data-src") or ""
+
+            results.append({
+                "title": f"{title} {ep}".strip(),
+                "img": img,
+                "post_token": b64e(link),
+                "source": "tca" # Marker to know this is from TopChinese
+            })
+
+        return render_template("partials/latest.html", results=results, next_page=page+1, source="tca")
+    except Exception as e:
+        print("TCA Error:", e)
+        return f"<p>Error loading TopChineseAnime: {e}</p>"
+
+# -------------------------------
+# TOP CHINESE ANIME - SEARCH
+# -------------------------------
+@app.route("/search_tca", methods=["POST"])
+def search_tca():
+    query = request.form.get("query", "").strip()
+    results = []
+
+    if query:
+        # Search URL structure: /?s=query
+        search_url = f"{BASE_URL_TCA}/?s={query}"
+        try:
+            r = requests.get(search_url, headers=HEADERS, timeout=30)
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            for post in soup.select("article.bs"):
+                a = post.select_one("a")
+                link = a["href"] if a else ""
+                
+                title_el = post.select_one(".tt") or post.select_one(".eggtitle")
+                ep_el = post.select_one(".eggepisode") or post.select_one(".epx")
+                img_el = post.select_one("img")
+
+                title = title_el.get_text(strip=True) if title_el else "No Title"
+                ep = f" {ep_el.get_text(strip=True)}" if ep_el else ""
+                img = img_el.get("src") or img_el.get("data-src") or "" if img_el else ""
+
+                results.append({
+                    "title": (title + ep).strip(),
+                    "img": img,
+                    "post_token": b64e(link),
+                    "source": "tca"
+                })
+        except Exception as e:
+            print("Search TCA Error:", e)
+
+    return render_template("partials/results.html", results=results)
+
+# -------------------------------
+# RUN APP
+# -------------------------------
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=True)

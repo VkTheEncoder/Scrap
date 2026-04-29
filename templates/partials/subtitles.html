@@ -1,0 +1,11 @@
+<h3>Select Subtitle</h3>
+{% if subtitles %}
+  {% for sub in subtitles %}
+    <button onclick="selectSubtitle('{{ ep_token }}', '{{ server_value }}', '{{ sub.lang }}')">
+      {{ sub.lang }} ({{ sub.name }})
+    </button>
+  {% endfor %}
+{% else %}
+  <p>No subtitles found.</p>
+  <button onclick="selectSubtitle('{{ ep_token }}', '{{ server_value }}', '')">Skip</button>
+{% endif %}

@@ -1,0 +1,4 @@
+<h3>Select Server</h3>
+{% for s in servers %}
+  <button onclick="selectServer('{{ episode_token }}', '{{ s.value }}')">{{ s.label }}</button>
+{% endfor %}

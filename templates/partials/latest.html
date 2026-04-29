@@ -1,0 +1,20 @@
+<h2>Latest Release</h2>
+
+<div class="results-list" id="latestList">
+  {% for anime in results %}
+    <div class="result-item" onclick="selectAnime('{{ anime.post_token }}')">
+      <img src="{{ anime.img }}" alt="{{ anime.title }}">
+      <p>{{ anime.title }}</p>
+    </div>
+  {% endfor %}
+</div>
+
+{% if next_page %}
+  <div style="text-align:center; margin-top:12px;">
+    <button id="latestNextBtn"
+            data-next="{{ next_page }}"
+            onclick="loadMoreLatest(this)">
+      Next →
+    </button>
+  </div>
+{% endif %}
