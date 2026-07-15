@@ -1,11 +1,27 @@
 <h3>Select Subtitle</h3>
 {% if subtitles %}
   {% for sub in subtitles %}
-    <button onclick="selectSubtitle('{{ ep_token }}', '{{ server_value }}', '{{ sub.lang }}')">
+    <button
+      type="button"
+      data-episode-token="{{ ep_token|e }}"
+      data-server="{{ server_value|e }}"
+      data-subtitle="{{ sub.lang|e }}"
+      data-title="{{ anime_title|e }}"
+      data-episode="{{ episode_num|e }}"
+      onclick="selectSubtitle(this)"
+    >
       {{ sub.lang }} ({{ sub.name }})
     </button>
   {% endfor %}
 {% else %}
   <p>No subtitles found.</p>
-  <button onclick="selectSubtitle('{{ ep_token }}', '{{ server_value }}', '')">Skip</button>
+  <button
+    type="button"
+    data-episode-token="{{ ep_token|e }}"
+    data-server="{{ server_value|e }}"
+    data-subtitle=""
+    data-title="{{ anime_title|e }}"
+    data-episode="{{ episode_num|e }}"
+    onclick="selectSubtitle(this)"
+  >Skip</button>
 {% endif %}
