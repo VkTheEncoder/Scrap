@@ -774,120 +774,167 @@ def latest():
 def episodes():
     token = request.form.get("anime_id", "")
     url = b64d(token) if token else ""
+
     episodes = []
-    title = ""
+    ep_elements = []
+    title = "Anime"
 
-    if url:
-        try:
-            title = re.sub(
-                r"\s+(?:episode|ep)\s*[-:]?\s*\d+(?:\.\d+)?\b.*$",
+    if not url:
+        return render_template(
+            "partials/episodes.html",
+            eps=[],
+            anime_id=token,
+            title=title
+        )
+
+    try:
+        # This line must remain here.
+        # It creates raw_title and ep_elements.
+        resolved_url, raw_title, ep_elements = (
+            load_animexin_episode_page(url)
+        )
+
+        print("RESOLVED ANIME URL:", resolved_url)
+        print("RAW ANIME TITLE:", raw_title)
+        print("EPISODE ELEMENT COUNT:", len(ep_elements))
+
+        # Remove episode number and subtitle-language text.
+        # Example:
+        # Walking the Way all alone Episode 16 Indonesia, English Sub
+        # becomes:
+        # Walking the Way all alone
+        title = re.sub(
+            r"\s+(?:episode|ep)\s*[-:]?\s*"
+            r"\d+(?:\.\d+)?\b.*$",
+            "",
+            raw_title or "",
+            flags=re.IGNORECASE
+        ).strip(" -")
+
+        # Fallback: create the anime title from its URL.
+        if not title:
+            title_url = resolved_url or url
+            slug = urlparse(title_url).path.strip("/")
+
+            slug = re.sub(
+                r"-episode-\d+(?:\.\d+)?.*$",
                 "",
-                title,
+                slug,
                 flags=re.IGNORECASE
-            ).strip(" -")
+            )
 
-            if not title:
-                title = "Anime"
+            title = re.sub(r"[-_]+", " ", slug).strip().title()
 
-            print("CLEAN ANIME TITLE:", title)
+        if not title:
+            title = "Anime"
 
-            # 3. Parse the episodes (Standard Logic)
-            for li in ep_elements:
-                a = li.select_one("a[href]")
+        print("CLEAN ANIME TITLE:", title)
 
-                if not a:
-                    continue
+        for li in ep_elements:
+            a = li.select_one("a[href]")
 
-                href = urljoin(BASE_URL, a.get("href", ""))
-                full_text = li.get_text(" ", strip=True)
+            if not a:
+                continue
 
-                num_text = ""
+            href = urljoin(
+                BASE_URL,
+                a.get("href", "")
+            )
 
-                # Method 1: Try old and possible new number classes
-                num_element = li.select_one(
-                    ".epl-num, "
-                    ".ep-num, "
-                    ".episode-number"
+            full_text = li.get_text(" ", strip=True)
+            num_text = ""
+
+            # First try number-related HTML elements.
+            num_element = li.select_one(
+                ".epl-num, "
+                ".ep-num, "
+                ".episode-number"
+            )
+
+            if num_element:
+                number_match = re.search(
+                    r"\d+(?:\.\d+)?",
+                    num_element.get_text(" ", strip=True)
                 )
 
-                if num_element:
-                    number_match = re.search(
-                        r"\d+(?:\.\d+)?",
-                        num_element.get_text(" ", strip=True)
-                    )
+                if number_match:
+                    num_text = number_match.group(0)
 
-                    if number_match:
-                        num_text = number_match.group(0)
-
-                # Method 2: Extract from URL:
-                # /anime-name-episode-16-indonesia-english-sub/
-                if not num_text:
-                    number_match = re.search(
-                        r"-episode-(\d+(?:\.\d+)?)\b",
-                        href,
-                        re.IGNORECASE
-                    )
-
-                    if number_match:
-                        num_text = number_match.group(1)
-
-                # Method 3: Extract from text:
-                # Episode 16, Eps 16 or Ep 16
-                if not num_text:
-                    number_match = re.search(
-                        r"\b(?:episode|eps?)\s*[-:#]?\s*(\d+(?:\.\d+)?)\b",
-                        full_text,
-                        re.IGNORECASE
-                    )
-
-                    if number_match:
-                        num_text = number_match.group(1)
-
-                # Method 4: Number appears at beginning of list item
-                if not num_text:
-                    number_match = re.match(
-                        r"\s*(\d+(?:\.\d+)?)\b",
-                        full_text
-                    )
-
-                    if number_match:
-                        num_text = number_match.group(1)
-
-                # Do not add an episode when its number cannot be detected
-                if not num_text:
-                    print("EPISODE NUMBER NOT FOUND:", full_text[:200])
-                    continue
-
-                ep_title_element = li.select_one(
-                    ".epl-title, "
-                    ".ep-title, "
-                    ".episode-title"
+            # Most reliable method: extract number from episode URL.
+            if not num_text:
+                number_match = re.search(
+                    r"-episode-(\d+(?:\.\d+)?)\b",
+                    href,
+                    re.IGNORECASE
                 )
 
-                ep_title_text = (
-                    ep_title_element.get_text(" ", strip=True)
-                    if ep_title_element
-                    else ""
+                if number_match:
+                    num_text = number_match.group(1)
+
+            # Fallback: Episode 16, Ep 16 or Eps 16.
+            if not num_text:
+                number_match = re.search(
+                    r"\b(?:episode|eps?)\s*[-:#]?\s*"
+                    r"(\d+(?:\.\d+)?)\b",
+                    full_text,
+                    re.IGNORECASE
                 )
 
+                if number_match:
+                    num_text = number_match.group(1)
+
+            # Final fallback: number at beginning of text.
+            if not num_text:
+                number_match = re.match(
+                    r"\s*(\d+(?:\.\d+)?)\b",
+                    full_text
+                )
+
+                if number_match:
+                    num_text = number_match.group(1)
+
+            if not num_text:
                 print(
-                    "PARSED EPISODE:",
-                    num_text,
-                    "|",
+                    "EPISODE NUMBER NOT FOUND:",
+                    full_text[:200],
                     href
                 )
+                continue
 
-                episodes.append({
-                    "num": num_text,
-                    "title": ep_title_text,
-                    "episode_token": b64e(href)
-                })
+            ep_title_element = li.select_one(
+                ".epl-title, "
+                ".ep-title, "
+                ".episode-title"
+            )
 
-        except Exception as e:
-            print(f"Error loading episodes: {e}")
+            ep_title_text = (
+                ep_title_element.get_text(" ", strip=True)
+                if ep_title_element
+                else ""
+            )
 
-    return render_template("partials/episodes.html", eps=episodes, anime_id=token, title=title)
+            episodes.append({
+                "num": num_text,
+                "title": ep_title_text,
+                "episode_token": b64e(href)
+            })
 
+            print(
+                "PARSED EPISODE:",
+                num_text,
+                "| TITLE:",
+                title
+            )
+
+    except Exception as e:
+        print("Error loading episodes:", repr(e))
+
+    return render_template(
+        "partials/episodes.html",
+        eps=episodes,
+        anime_id=token,
+        title=title
+    )
 
 @app.route("/process_all", methods=["POST"])
 def process_all():
