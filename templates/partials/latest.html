@@ -1,5 +1,19 @@
 <h2>Latest Release</h2>
 
+{% if error %}
+  <div style="
+      padding:12px;
+      margin:10px 0;
+      border-radius:8px;
+      background:#fff3f3;
+      color:#b42318;
+      border:1px solid #f5c2c2;
+      font-size:14px;
+  ">
+    Could not load AnimeXin: {{ error }}
+  </div>
+{% endif %}
+
 <div class="results-list" id="latestList">
   {% for anime in results %}
     <div class="result-item" onclick="selectAnime('{{ anime.post_token }}')">
