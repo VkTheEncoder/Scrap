@@ -1,4 +1,4 @@
-console.log("main.js loaded: filename-context-v1");
+console.log("main.js loaded: server-click-v3");
 
 let currentSource = "animexin";
 let globalAnimeTitle = "Anime";
@@ -30,7 +30,7 @@ $(document).ready(function () {
   });
 });
 
-function changeSource(source) {
+window.changeSource = function (source) {
   currentSource = source;
   globalAnimeTitle = "Anime";
   globalEpisodeNum = "";
@@ -46,16 +46,16 @@ function changeSource(source) {
   $("#results, #episodes, #serverSelection, #subtitleSelection, #stream").hide();
   $("#latest").show().html("<p class='text-center'>Loading latest releases...</p>");
   loadLatest(1);
-}
+};
 
-function loadLatest(page) {
+window.loadLatest = function (page) {
   const route = currentSource === "tca" ? "/latest_tca" : "/latest";
   $.get(route, { page: page || 1 }, function (html) {
     $("#latest").html(html).show();
   });
-}
+};
 
-function loadMoreLatest(btn) {
+window.loadMoreLatest = function (btn) {
   const $btn = $(btn);
   const route = currentSource === "tca" ? "/latest_tca" : "/latest";
   $.get(route, { page: $btn.data("next") }, function (html) {
@@ -67,9 +67,9 @@ function loadMoreLatest(btn) {
       $btn.remove();
     }
   });
-}
+};
 
-function selectAnime(id) {
+window.selectAnime = function (id) {
   $("#results, #latest").hide();
   
   $("#episodes").html("<p class='text-center'>Loading episodes...</p>").show();
@@ -81,16 +81,27 @@ function selectAnime(id) {
   }).fail(function () {
     $("#episodes").html("<p class='text-center text-danger'>Error loading episodes.</p>");
   });
-}
+};
 
-function selectEpisode(epToken, buttonElement) {
+window.selectEpisode = function (epToken, buttonElement) {
   if (!buttonElement) {
     alert("Episode context is missing. Reload the page and try again.");
     return;
   }
 
-  const animeTitle = (buttonElement.dataset.title || "Anime").trim();
-  const episodeNum = (buttonElement.dataset.num || "").trim();
+  const visibleName = (buttonElement.dataset.fullName || buttonElement.textContent || "").trim();
+  const nameMatch = visibleName.match(/^(.*?)\s+Ep-(\d+(?:\.\d+)?)$/i);
+
+  const animeTitle = (
+    buttonElement.dataset.title ||
+    (nameMatch ? nameMatch[1] : "") ||
+    "Anime"
+  ).trim();
+
+  const episodeNum = (
+    buttonElement.dataset.num ||
+    (nameMatch ? nameMatch[2] : "")
+  ).trim();
 
   globalAnimeTitle = animeTitle;
   globalEpisodeNum = episodeNum;
@@ -110,10 +121,9 @@ function selectEpisode(epToken, buttonElement) {
   }).fail(function () {
     $("#serverSelection").html("<p class='text-center text-danger'>Error loading servers.</p>");
   });
-}
+};
 
-// This function was missing from the uploaded repository.
-function selectServer(buttonElement) {
+window.selectServer = function (buttonElement) {
   if (!buttonElement) {
     alert("Server context is missing. Reload the page and try again.");
     return;
@@ -123,8 +133,8 @@ function selectServer(buttonElement) {
   const context = {
     episode_token: data.episodeToken || "",
     server: data.server || "",
-    title: data.title || "Anime",
-    episode: data.episode || ""
+    title: data.title || globalAnimeTitle || "Anime",
+    episode: data.episode || globalEpisodeNum || ""
   };
 
   console.log("SERVER CONTEXT:", context);
@@ -138,9 +148,9 @@ function selectServer(buttonElement) {
   }).fail(function () {
     $("#subtitleSelection").html("<p class='text-center text-danger'>Error loading subtitles.</p>");
   });
-}
+};
 
-function selectSubtitle(buttonElement) {
+window.selectSubtitle = function (buttonElement) {
   if (!buttonElement) {
     alert("Subtitle context is missing. Reload the page and try again.");
     return;
@@ -151,8 +161,8 @@ function selectSubtitle(buttonElement) {
     episode_token: data.episodeToken || "",
     server: data.server || "",
     subtitle: data.subtitle || "",
-    title: data.title || "Anime",
-    episode: data.episode || ""
+    title: data.title || globalAnimeTitle || "Anime",
+    episode: data.episode || globalEpisodeNum || ""
   };
 
   console.log("STREAM CONTEXT:", context);
@@ -165,9 +175,9 @@ function selectSubtitle(buttonElement) {
   }).fail(function () {
     $("#stream").html("<p class='text-center text-danger'>Error loading stream.</p>");
   });
-}
+};
 
-function processAllEpisodes(animeId) {
+window.processAllEpisodes = function (animeId) {
   $("#stream").html("<p class='text-center'>Processing all episodes...</p>").show();
   $("#results, #episodes, #serverSelection, #subtitleSelection").hide();
   $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
@@ -177,4 +187,13 @@ function processAllEpisodes(animeId) {
   }).fail(function() {
     $("#stream").html("<p class='text-center text-danger'>Error processing episodes.</p>");
   });
-}
+};
+
+$(document).ajaxError(function (_event, jqXHR, settings, errorThrown) {
+  console.error("AJAX ERROR", {
+    url: settings.url,
+    status: jqXHR.status,
+    response: jqXHR.responseText,
+    error: errorThrown
+  });
+});
