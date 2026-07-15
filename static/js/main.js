@@ -1,4 +1,4 @@
-console.log("main.js loaded: filename-context-v1");
+console.log("main.js loaded: filename-context-v2");
 
 let currentSource = "animexin";
 let globalAnimeTitle = "Anime";
@@ -83,8 +83,19 @@ function selectEpisode(epToken, buttonElement) {
     return;
   }
 
-  const animeTitle = (buttonElement.dataset.title || "Anime").trim();
-  const episodeNum = (buttonElement.dataset.num || "").trim();
+  const fullButtonName = (
+    buttonElement.dataset.fullName || buttonElement.textContent || ""
+  ).trim();
+
+  let animeTitle = (buttonElement.dataset.title || "").trim();
+  let episodeNum = (buttonElement.dataset.num || "").trim();
+
+  // Fallback to the visible format: "Anime Name Ep-16".
+  const nameMatch = fullButtonName.match(/^(.*?)\s+Ep-(\d+(?:\.\d+)?)$/i);
+  if (!animeTitle && nameMatch) animeTitle = nameMatch[1].trim();
+  if (!episodeNum && nameMatch) episodeNum = nameMatch[2].trim();
+
+  if (!animeTitle) animeTitle = "Anime";
 
   globalAnimeTitle = animeTitle;
   globalEpisodeNum = episodeNum;
@@ -115,8 +126,8 @@ function selectServer(buttonElement) {
   const context = {
     episode_token: data.episodeToken || "",
     server: data.server || "",
-    title: data.title || "Anime",
-    episode: data.episode || ""
+    title: data.title || globalAnimeTitle || "Anime",
+    episode: data.episode || globalEpisodeNum || ""
   };
 
   console.log("SERVER CONTEXT:", context);
@@ -141,8 +152,8 @@ function selectSubtitle(buttonElement) {
     episode_token: data.episodeToken || "",
     server: data.server || "",
     subtitle: data.subtitle || "",
-    title: data.title || "Anime",
-    episode: data.episode || ""
+    title: data.title || globalAnimeTitle || "Anime",
+    episode: data.episode || globalEpisodeNum || ""
   };
 
   console.log("STREAM CONTEXT:", context);
