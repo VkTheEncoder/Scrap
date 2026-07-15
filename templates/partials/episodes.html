@@ -40,7 +40,7 @@
         "
         onmouseover="this.style.background='#574fd6'"
         onmouseout="this.style.background='#6c63ff'">
-        Ep {{ ep.num }} - {{ ep.title }}
+        Ep {{ ep.num }}{% if ep.title %} - {{ ep.title }}{% endif %}
       </button>
     {% endfor %}
   {% else %}
