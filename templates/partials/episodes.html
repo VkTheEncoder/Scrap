@@ -56,6 +56,6 @@
     if (!n) { alert('Enter an episode number'); return; }
     const btn = document.querySelector(`.ep-btn[data-num="${n}"]`);
     if (!btn) { alert('Invalid episode number'); return; }
-    selectEpisode(btn.dataset.token);
+    selectEpisode(btn.dataset.token, btn);
   }
 </script>
