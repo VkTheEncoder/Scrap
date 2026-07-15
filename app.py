@@ -1088,50 +1088,51 @@ def get_subtitles():
         vid_id = extract_dailymotion_video_id(payloads)
         if vid_id:
             meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-
             dm_headers = HEADERS.copy()
             dm_headers["Referer"] = f"https://www.dailymotion.com/embed/video/{vid_id}"
+            try:
+                meta = requests.get(meta_url, headers=dm_headers, timeout=5).json()
 
-            meta = requests.get(meta_url, headers=dm_headers, timeout=20).json()
+                if "subtitles" in meta and "data" in meta["subtitles"]:
+                    for lang_code, info in meta["subtitles"]["data"].items():
+                        label = info.get("label", lang_code)
+                        urls = info.get("urls", [])
+                        if urls:
+                            subs.append({
+                                "lang": lang_code,
+                                "name": label,
+                                "url": b64e(urls[0])
+                            })
 
-            if "subtitles" in meta and "data" in meta["subtitles"]:
-                for lang_code, info in meta["subtitles"]["data"].items():
-                    label = info.get("label", lang_code)
-                    urls = info.get("urls", [])
-                    if urls:
-                        subs.append({
-                            "lang": lang_code,
-                            "name": label,
-                            "url": b64e(urls[0])
-                        })
+                if not subs and "qualities" in meta:
+                    target_streams = []
+                    if "auto" in meta["qualities"]:
+                        target_streams.extend(meta["qualities"]["auto"])
+                    for quality, streams in meta["qualities"].items():
+                        if quality != "auto":
+                            target_streams.extend(streams)
 
-            if not subs and "qualities" in meta:
-                target_streams = []
-                if "auto" in meta["qualities"]:
-                    target_streams.extend(meta["qualities"]["auto"])
-                for quality, streams in meta["qualities"].items():
-                    if quality != "auto":
-                        target_streams.extend(streams)
-
-                for stream_data in target_streams:
-                    if stream_data.get("type") == "application/x-mpegURL":
-                        found = extract_subs_from_m3u8(stream_data["url"])
-                        if found:
-                            subs = found
-                            break
+                    for stream_data in target_streams:
+                        if stream_data.get("type") == "application/x-mpegURL":
+                            found = extract_subs_from_m3u8(stream_data["url"])
+                            if found:
+                                subs = found
+                                break
+            except Exception as dm_err:
+                print(f"DM metadata fetch non-fatal: {dm_err}")
 
     except Exception as e:
         print(f"Error in get_subtitles: {e}")
 
-    print("SUBTITLE CONTEXT:", anime_title, "| EP:", episode_num)
-    return render_template(
-        "partials/subtitles.html",
-        subtitles=subs,
-        ep_token=ep_token,
-        server_value=server_value,
-        anime_title=anime_title,
-        episode_num=episode_num
-    )
+    print("SUBTITLE CONTEXT:", anime_title, "| EP:", episode_num, "| SUBS:", len(subs))
+    # Return JSON — JS will skip subtitle UI and go straight to /stream when subs==[]
+    return jsonify({
+        "subs": subs,
+        "ep_token": ep_token,
+        "server_value": server_value,
+        "anime_title": anime_title,
+        "episode_num": episode_num
+    })
 
 # -------------------------------
 # SUBTITLE EXTRACTOR

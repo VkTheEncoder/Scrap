@@ -13,22 +13,16 @@
       {{ sub.lang }} ({{ sub.name }})
     </button>
   {% endfor %}
-{% else %}
-  <p>No subtitles found.</p>
+  <br><br>
   <button
     type="button"
-    id="auto-skip-btn"
     data-episode-token="{{ ep_token|e }}"
     data-server="{{ server_value|e }}"
     data-subtitle=""
     data-title="{{ anime_title|e }}"
     data-episode="{{ episode_num|e }}"
     onclick="selectSubtitle(this)"
-  >Skip</button>
-  <script>
-    setTimeout(function() {
-      var skipBtn = document.getElementById('auto-skip-btn');
-      if (skipBtn) skipBtn.click();
-    }, 100);
-  </script>
+  >▶ Skip / No Subtitle</button>
+{% else %}
+  <p>No subtitles found.</p>
 {% endif %}
