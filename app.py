@@ -779,7 +779,17 @@ def episodes():
 
     if url:
         try:
-            _, title, ep_elements = load_animexin_episode_page(url)
+            title = re.sub(
+                r"\s+(?:episode|ep)\s*[-:]?\s*\d+(?:\.\d+)?\b.*$",
+                "",
+                title,
+                flags=re.IGNORECASE
+            ).strip(" -")
+
+            if not title:
+                title = "Anime"
+
+            print("CLEAN ANIME TITLE:", title)
 
             # 3. Parse the episodes (Standard Logic)
             for li in ep_elements:
