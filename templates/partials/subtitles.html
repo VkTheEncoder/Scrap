@@ -17,6 +17,7 @@
   <p>No subtitles found.</p>
   <button
     type="button"
+    id="auto-skip-btn"
     data-episode-token="{{ ep_token|e }}"
     data-server="{{ server_value|e }}"
     data-subtitle=""
@@ -24,4 +25,10 @@
     data-episode="{{ episode_num|e }}"
     onclick="selectSubtitle(this)"
   >Skip</button>
+  <script>
+    setTimeout(function() {
+      var skipBtn = document.getElementById('auto-skip-btn');
+      if (skipBtn) skipBtn.click();
+    }, 100);
+  </script>
 {% endif %}

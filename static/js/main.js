@@ -1,4 +1,4 @@
-console.log("main.js loaded: filename-context-v2");
+console.log("main.js loaded: filename-context-v1");
 
 let currentSource = "animexin";
 let globalAnimeTitle = "Anime";
@@ -16,13 +16,16 @@ $(document).ready(function () {
     }
 
     const searchRoute = currentSource === "tca" ? "/search_tca" : "/search";
+    
+    $("#results").html("<p class='text-center'>Searching...</p>").show();
+    $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
+    $("#latest").hide();
+    $("html, body").animate({ scrollTop: $("#results").offset().top - 30 }, 600);
+
     $.post(searchRoute, { query }, function (data) {
-      $("#results").html(data).show();
-      $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
-      $("#latest").hide();
-      $("html, body").animate({ scrollTop: $("#results").offset().top - 30 }, 600);
+      $("#results").html(data);
     }).fail(function () {
-      alert("Error searching.");
+      $("#results").html("<p class='text-center text-danger'>Error searching.</p>");
     });
   });
 });
@@ -68,12 +71,15 @@ function loadMoreLatest(btn) {
 
 function selectAnime(id) {
   $("#results, #latest").hide();
+  
+  $("#episodes").html("<p class='text-center'>Loading episodes...</p>").show();
+  $("#serverSelection, #subtitleSelection, #stream").hide();
+  $("html, body").animate({ scrollTop: $("#episodes").offset().top - 30 }, 600);
+
   $.post("/episodes", { anime_id: id }, function (data) {
-    $("#episodes").html(data).show();
-    $("#serverSelection, #subtitleSelection, #stream").hide();
-    $("html, body").animate({ scrollTop: $("#episodes").offset().top - 30 }, 600);
+    $("#episodes").html(data);
   }).fail(function () {
-    alert("Error loading episodes.");
+    $("#episodes").html("<p class='text-center text-danger'>Error loading episodes.</p>");
   });
 }
 
@@ -83,35 +89,26 @@ function selectEpisode(epToken, buttonElement) {
     return;
   }
 
-  const fullButtonName = (
-    buttonElement.dataset.fullName || buttonElement.textContent || ""
-  ).trim();
-
-  let animeTitle = (buttonElement.dataset.title || "").trim();
-  let episodeNum = (buttonElement.dataset.num || "").trim();
-
-  // Fallback to the visible format: "Anime Name Ep-16".
-  const nameMatch = fullButtonName.match(/^(.*?)\s+Ep-(\d+(?:\.\d+)?)$/i);
-  if (!animeTitle && nameMatch) animeTitle = nameMatch[1].trim();
-  if (!episodeNum && nameMatch) episodeNum = nameMatch[2].trim();
-
-  if (!animeTitle) animeTitle = "Anime";
+  const animeTitle = (buttonElement.dataset.title || "Anime").trim();
+  const episodeNum = (buttonElement.dataset.num || "").trim();
 
   globalAnimeTitle = animeTitle;
   globalEpisodeNum = episodeNum;
 
   console.log("EPISODE CONTEXT:", { animeTitle, episodeNum, epToken });
 
+  $("#serverSelection").html("<p class='text-center'>Loading servers...</p>").show();
+  $("#subtitleSelection, #stream").hide();
+  $("html, body").animate({ scrollTop: $("#serverSelection").offset().top - 20 }, 600);
+
   $.post("/get_servers", {
     episode_token: epToken,
     title: animeTitle,
     episode: episodeNum
   }, function (data) {
-    $("#serverSelection").html(data).show();
-    $("#subtitleSelection, #stream").hide();
-    $("html, body").animate({ scrollTop: $("#serverSelection").offset().top - 20 }, 600);
+    $("#serverSelection").html(data);
   }).fail(function () {
-    alert("Error loading servers.");
+    $("#serverSelection").html("<p class='text-center text-danger'>Error loading servers.</p>");
   });
 }
 
@@ -126,18 +123,20 @@ function selectServer(buttonElement) {
   const context = {
     episode_token: data.episodeToken || "",
     server: data.server || "",
-    title: data.title || globalAnimeTitle || "Anime",
-    episode: data.episode || globalEpisodeNum || ""
+    title: data.title || "Anime",
+    episode: data.episode || ""
   };
 
   console.log("SERVER CONTEXT:", context);
 
+  $("#subtitleSelection").html("<p class='text-center'>Loading subtitles...</p>").show();
+  $("#stream").hide();
+  $("html, body").animate({ scrollTop: $("#subtitleSelection").offset().top - 20 }, 600);
+
   $.post("/get_subtitles", context, function (html) {
-    $("#subtitleSelection").html(html).show();
-    $("#stream").hide();
-    $("html, body").animate({ scrollTop: $("#subtitleSelection").offset().top - 20 }, 600);
+    $("#subtitleSelection").html(html);
   }).fail(function () {
-    alert("Error loading subtitles.");
+    $("#subtitleSelection").html("<p class='text-center text-danger'>Error loading subtitles.</p>");
   });
 }
 
@@ -152,24 +151,30 @@ function selectSubtitle(buttonElement) {
     episode_token: data.episodeToken || "",
     server: data.server || "",
     subtitle: data.subtitle || "",
-    title: data.title || globalAnimeTitle || "Anime",
-    episode: data.episode || globalEpisodeNum || ""
+    title: data.title || "Anime",
+    episode: data.episode || ""
   };
 
   console.log("STREAM CONTEXT:", context);
 
+  $("#stream").html("<p class='text-center'>Loading stream...</p>").show();
+  $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
+
   $.post("/stream", context, function (html) {
-    $("#stream").html(html).show();
-    $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
+    $("#stream").html(html);
   }).fail(function () {
-    alert("Error loading stream.");
+    $("#stream").html("<p class='text-center text-danger'>Error loading stream.</p>");
   });
 }
 
 function processAllEpisodes(animeId) {
+  $("#stream").html("<p class='text-center'>Processing all episodes...</p>").show();
+  $("#results, #episodes, #serverSelection, #subtitleSelection").hide();
+  $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
+
   $.post("/process_all", { anime_id: animeId }, function (data) {
-    $("#stream").html(data).show();
-    $("#results, #episodes, #serverSelection, #subtitleSelection").hide();
-    $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
+    $("#stream").html(data);
+  }).fail(function() {
+    $("#stream").html("<p class='text-center text-danger'>Error processing episodes.</p>");
   });
 }
