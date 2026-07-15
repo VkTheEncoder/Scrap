@@ -1,4 +1,4 @@
-console.log("main.js loaded: v20260716-json-subtitle-v2");
+console.log("main.js loaded: filename-context-v1");
 
 let currentSource = "animexin";
 let globalAnimeTitle = "Anime";
@@ -16,7 +16,7 @@ $(document).ready(function () {
     }
 
     const searchRoute = currentSource === "tca" ? "/search_tca" : "/search";
-
+    
     $("#results").html("<p class='text-center'>Searching...</p>").show();
     $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
     $("#latest").hide();
@@ -25,7 +25,7 @@ $(document).ready(function () {
     $.post(searchRoute, { query }, function (data) {
       $("#results").html(data);
     }).fail(function () {
-      $("#results").html("<p class='text-center' style='color:red;'>Error searching. Please try again.</p>");
+      $("#results").html("<p class='text-center text-danger'>Error searching.</p>");
     });
   });
 });
@@ -71,7 +71,7 @@ function loadMoreLatest(btn) {
 
 function selectAnime(id) {
   $("#results, #latest").hide();
-
+  
   $("#episodes").html("<p class='text-center'>Loading episodes...</p>").show();
   $("#serverSelection, #subtitleSelection, #stream").hide();
   $("html, body").animate({ scrollTop: $("#episodes").offset().top - 30 }, 600);
@@ -79,7 +79,7 @@ function selectAnime(id) {
   $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data);
   }).fail(function () {
-    $("#episodes").html("<p class='text-center' style='color:red;'>Error loading episodes.</p>");
+    $("#episodes").html("<p class='text-center text-danger'>Error loading episodes.</p>");
   });
 }
 
@@ -108,10 +108,11 @@ function selectEpisode(epToken, buttonElement) {
   }, function (data) {
     $("#serverSelection").html(data);
   }).fail(function () {
-    $("#serverSelection").html("<p class='text-center' style='color:red;'>Error loading servers.</p>");
+    $("#serverSelection").html("<p class='text-center text-danger'>Error loading servers.</p>");
   });
 }
 
+// This function was missing from the uploaded repository.
 function selectServer(buttonElement) {
   if (!buttonElement) {
     alert("Server context is missing. Reload the page and try again.");
@@ -128,61 +129,14 @@ function selectServer(buttonElement) {
 
   console.log("SERVER CONTEXT:", context);
 
-  // Show loading immediately so user knows the click was registered
-  $("#subtitleSelection").html("<p class='text-center'>⏳ Loading...</p>").show();
+  $("#subtitleSelection").html("<p class='text-center'>Loading subtitles...</p>").show();
   $("#stream").hide();
-  $("html, body").animate({ scrollTop: $("#subtitleSelection").offset().top - 20 }, 300);
+  $("html, body").animate({ scrollTop: $("#subtitleSelection").offset().top - 20 }, 600);
 
-  // /get_subtitles now returns JSON
-  $.post("/get_subtitles", context, function (json) {
-    if (json.subs && json.subs.length > 0) {
-      // Has subtitles — show selection UI
-      var html = "<h3>Select Subtitle</h3>";
-      json.subs.forEach(function (sub) {
-        html += '<button type="button"' +
-          ' data-episode-token="' + escAttr(json.ep_token) + '"' +
-          ' data-server="' + escAttr(json.server_value) + '"' +
-          ' data-subtitle="' + escAttr(sub.lang) + '"' +
-          ' data-title="' + escAttr(json.anime_title) + '"' +
-          ' data-episode="' + escAttr(json.episode_num) + '"' +
-          ' onclick="selectSubtitle(this)">' +
-          escHtml(sub.lang) + ' (' + escHtml(sub.name) + ')' +
-          '</button> ';
-      });
-      // Always add a Skip button
-      html += '<br><br><button type="button"' +
-        ' data-episode-token="' + escAttr(json.ep_token) + '"' +
-        ' data-server="' + escAttr(json.server_value) + '"' +
-        ' data-subtitle=""' +
-        ' data-title="' + escAttr(json.anime_title) + '"' +
-        ' data-episode="' + escAttr(json.episode_num) + '"' +
-        ' onclick="selectSubtitle(this)">▶ Skip / No Subtitle</button>';
-      $("#subtitleSelection").html(html);
-    } else {
-      // No subtitles found — skip straight to stream
-      console.log("No subtitles found, going directly to stream.");
-      $("#subtitleSelection").hide();
-      loadStream({
-        episode_token: json.ep_token,
-        server: json.server_value,
-        subtitle: "",
-        title: json.anime_title,
-        episode: json.episode_num
-      });
-    }
-  }, "json").fail(function (xhr) {
-    console.error("get_subtitles failed:", xhr.status, xhr.responseText);
-    $("#subtitleSelection").html("<p class='text-center' style='color:red;'>Error loading subtitles. Trying stream directly...</p>");
-    // Fall through to stream anyway
-    setTimeout(function () {
-      loadStream({
-        episode_token: context.episode_token,
-        server: context.server,
-        subtitle: "",
-        title: context.title,
-        episode: context.episode
-      });
-    }, 1500);
+  $.post("/get_subtitles", context, function (html) {
+    $("#subtitleSelection").html(html);
+  }).fail(function () {
+    $("#subtitleSelection").html("<p class='text-center text-danger'>Error loading subtitles.</p>");
   });
 }
 
@@ -193,46 +147,34 @@ function selectSubtitle(buttonElement) {
   }
 
   const data = buttonElement.dataset;
-  loadStream({
+  const context = {
     episode_token: data.episodeToken || "",
     server: data.server || "",
     subtitle: data.subtitle || "",
     title: data.title || "Anime",
     episode: data.episode || ""
-  });
-}
+  };
 
-function loadStream(context) {
   console.log("STREAM CONTEXT:", context);
 
-  $("#stream").html("<p class='text-center'>⏳ Loading stream...</p>").show();
-  $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 300);
+  $("#stream").html("<p class='text-center'>Loading stream...</p>").show();
+  $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
 
   $.post("/stream", context, function (html) {
     $("#stream").html(html);
   }).fail(function () {
-    $("#stream").html("<p class='text-center' style='color:red;'>Error loading stream.</p>");
+    $("#stream").html("<p class='text-center text-danger'>Error loading stream.</p>");
   });
 }
 
 function processAllEpisodes(animeId) {
-  $("#stream").html("<p class='text-center'>⏳ Processing all episodes...</p>").show();
+  $("#stream").html("<p class='text-center'>Processing all episodes...</p>").show();
   $("#results, #episodes, #serverSelection, #subtitleSelection").hide();
   $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
 
   $.post("/process_all", { anime_id: animeId }, function (data) {
     $("#stream").html(data);
-  }).fail(function () {
-    $("#stream").html("<p class='text-center' style='color:red;'>Error processing episodes.</p>");
+  }).fail(function() {
+    $("#stream").html("<p class='text-center text-danger'>Error processing episodes.</p>");
   });
-}
-
-// Utility: escape HTML attribute characters
-function escAttr(str) {
-  return String(str || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-// Utility: escape HTML content
-function escHtml(str) {
-  return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

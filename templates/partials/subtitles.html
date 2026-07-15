@@ -1,28 +1,62 @@
 <h3>Select Subtitle</h3>
-{% if subtitles %}
-  {% for sub in subtitles %}
-    <button
-      type="button"
-      data-episode-token="{{ ep_token|e }}"
-      data-server="{{ server_value|e }}"
-      data-subtitle="{{ sub.lang|e }}"
-      data-title="{{ anime_title|e }}"
-      data-episode="{{ episode_num|e }}"
-      onclick="selectSubtitle(this)"
-    >
-      {{ sub.lang }} ({{ sub.name }})
-    </button>
-  {% endfor %}
-  <br><br>
+
+{% macro stream_button(label, subtitle_value, button_id='') %}
   <button
     type="button"
+    {% if button_id %}id="{{ button_id }}"{% endif %}
     data-episode-token="{{ ep_token|e }}"
     data-server="{{ server_value|e }}"
-    data-subtitle=""
+    data-subtitle="{{ subtitle_value|e }}"
     data-title="{{ anime_title|e }}"
     data-episode="{{ episode_num|e }}"
-    onclick="selectSubtitle(this)"
-  >▶ Skip / No Subtitle</button>
+    onclick="
+      (function (btn) {
+        var target = document.getElementById('stream');
+
+        if (!target) {
+          console.error('stream element was not found');
+          return;
+        }
+
+        target.style.display = 'block';
+        target.innerHTML = '<p>Loading stream...</p>';
+
+        var payload = {
+          episode_token: btn.getAttribute('data-episode-token') || '',
+          server: btn.getAttribute('data-server') || '',
+          subtitle: btn.getAttribute('data-subtitle') || '',
+          title: btn.getAttribute('data-title') || 'Anime',
+          episode: btn.getAttribute('data-episode') || ''
+        };
+
+        console.log('DIRECT STREAM PAYLOAD:', payload);
+
+        $.ajax({
+          url: '/stream',
+          method: 'POST',
+          data: payload
+        })
+        .done(function (html) {
+          target.innerHTML = html;
+          target.style.display = 'block';
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        })
+        .fail(function (xhr) {
+          console.error('STREAM FAILED:', xhr.status, xhr.responseText);
+          target.innerHTML = '<p>Failed to load stream. HTTP ' + xhr.status + '</p>';
+        });
+      })(this);
+    "
+  >
+    {{ label }}
+  </button>
+{% endmacro %}
+
+{% if subtitles %}
+  {% for sub in subtitles %}
+    {{ stream_button(sub.lang ~ ' (' ~ sub.name ~ ')', sub.lang) }}
+  {% endfor %}
 {% else %}
   <p>No subtitles found.</p>
+  {{ stream_button('Skip', '', 'skip-subtitle-btn') }}
 {% endif %}
