@@ -12,35 +12,6 @@ $(document).ready(function () {
   // 1. CAPTURE DATA FROM THE EPISODE BUTTON (The logic you asked for)
   // ============================================================
   // We use the class ".ep-btn" because your HTML file uses it for every episode
-  $("body").on("click", ".ep-btn", function() {
-      // Get the full text, e.g., "Ep 13 (4k) - Divine Manifestation... Episode 13 Subtitles"
-      let fullText = $(this).text().trim();
-      
-      console.log("🖱️ Clicked Episode Button:", fullText);
-
-      // A. Extract Episode Number (Everything after "Ep " and before the first space)
-      let epMatch = fullText.match(/^Ep\s*(\d+)/i);
-      if (epMatch && epMatch[1]) {
-          globalEpisodeNum = epMatch[1];
-      }
-
-      // B. Extract Title (The text in the middle)
-      // Logic: Split by " - " to skip the "Ep 13" part
-      let parts = fullText.split(" - ");
-      if (parts.length >= 2) {
-          // Take the second part: "Divine Manifestation... Episode 13 Subtitles"
-          let rawTitle = parts[1];
-          
-          // Clean it: Remove the "Episode 13 Subtitles" from the end
-          // This Regex says: Find "Episode" followed by numbers, and delete everything after it
-          let cleanTitle = rawTitle.replace(/Episode\s+\d+.*$/i, "").trim();
-          
-          if (cleanTitle) {
-              globalAnimeTitle = cleanTitle;
-              console.log("✅ Parsed Title:", globalAnimeTitle);
-          }
-      }
-  });
 
   // ===============================
   // Search Form
@@ -108,14 +79,38 @@ function selectAnime(id) {
 
 // NOTE: This function is triggered by your HTML onclick="selectEpisode(...)"
 // We don't need to change it because our new listener above captures the data BEFORE this runs.
-function selectEpisode(ep_token) {
-  $.post("/get_servers", { episode_token: ep_token }, function (data) {
-    $("#serverSelection").html(data).show();
-    $("#subtitleSelection, #stream").hide();
-    $("html, body").animate({ scrollTop: $("#serverSelection").offset().top - 20 }, 600);
-  });
-}
+function selectEpisode(ep_token, buttonElement) {
+  // Read the title and episode number directly from the button.
+  if (buttonElement) {
+    globalAnimeTitle = (
+      buttonElement.dataset.title || "Anime"
+    ).trim();
 
+    globalEpisodeNum = (
+      buttonElement.dataset.num || ""
+    ).trim();
+  }
+
+  console.log(
+    "Selected anime:",
+    globalAnimeTitle,
+    "| Episode:",
+    globalEpisodeNum
+  );
+
+  $.post(
+    "/get_servers",
+    { episode_token: ep_token },
+    function (data) {
+      $("#serverSelection").html(data).show();
+      $("#subtitleSelection, #stream").hide();
+
+      $("html, body").animate({
+        scrollTop: $("#serverSelection").offset().top - 20
+      }, 600);
+    }
+  );
+}
 function selectServer(ep_token, server_value) {
   $.post("/get_subtitles", { episode_token: ep_token, server: server_value }, function (data) {
     $("#subtitleSelection").html(data).show();
