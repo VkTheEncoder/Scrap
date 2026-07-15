@@ -2,6 +2,7 @@
 import base64
 from flask import Flask, render_template, request, Response
 import requests
+from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin, urlparse
@@ -29,6 +30,75 @@ BASE_URL = "https://animexin.dev"
 BASE_URL_TCA = "https://topchineseanime.xyz"
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+ANIMEXIN_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/150.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Referer": "https://animexin.dev/",
+}
+
+
+def fetch_animexin_html(url: str) -> str:
+    """
+    Fetch AnimeXin using a browser-like TLS fingerprint.
+    Also prints the real upstream response in Render logs.
+    """
+    response = curl_requests.get(
+        url,
+        headers=ANIMEXIN_HEADERS,
+        impersonate="chrome",
+        timeout=30,
+        allow_redirects=True
+    )
+
+    html = response.text or ""
+    first_part = html[:5000].lower()
+
+    print("========== ANIMEXIN FETCH ==========")
+    print("Requested URL:", url)
+    print("Final URL:", response.url)
+    print("Status:", response.status_code)
+    print("HTML length:", len(html))
+    print("Content-Type:", response.headers.get("content-type"))
+    print("Server:", response.headers.get("server"))
+    print("CF-Mitigated:", response.headers.get("cf-mitigated"))
+    print("HTML beginning:", repr(html[:300]))
+    print("====================================")
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"AnimeXin returned HTTP {response.status_code} for {url}"
+        )
+
+    challenge_detected = (
+        response.headers.get("cf-mitigated") == "challenge"
+        or "just a moment" in first_part
+        or "challenge-platform" in first_part
+        or "cf-chl-" in first_part
+        or "attention required" in first_part
+    )
+
+    if challenge_detected:
+        raise RuntimeError(
+            "AnimeXin returned a Cloudflare challenge instead of the website."
+        )
+
+    if len(html.strip()) < 500:
+        raise RuntimeError(
+            f"AnimeXin returned unusually short HTML: {len(html)} characters."
+        )
+
+    return html
 
 def format_time(seconds):
     if not seconds:
@@ -235,22 +305,46 @@ def extract_animexin_series_url(page_url: str, soup: BeautifulSoup, title: str =
 
 
 def load_animexin_episode_page(url: str):
-    response = requests.get(url, headers=HEADERS, timeout=30)
-    soup = BeautifulSoup(response.text, "html.parser")
+    html = fetch_animexin_html(url)
+    soup = BeautifulSoup(html, "html.parser")
+
     title_el = soup.select_one("h1.entry-title")
-    title = title_el.get_text(strip=True) if title_el else ""
-    ep_elements = soup.select(".eplister ul li")
+    title = title_el.get_text(" ", strip=True) if title_el else ""
+
+    ep_elements = soup.select(
+        ".eplister ul li, "
+        ".episodelist ul li, "
+        "ul.clstyle li"
+    )
 
     if not ep_elements:
         series_url = extract_animexin_series_url(url, soup, title)
+
         if series_url:
-            print(f"DEBUG: No direct episode list on {url}. Retrying series page -> {series_url}")
-            response = requests.get(series_url, headers=HEADERS, timeout=30)
-            soup = BeautifulSoup(response.text, "html.parser")
+            print(
+                f"DEBUG: No episode list on {url}. "
+                f"Retrying series page -> {series_url}"
+            )
+
+            html = fetch_animexin_html(series_url)
+            soup = BeautifulSoup(html, "html.parser")
+
             title_el = soup.select_one("h1.entry-title")
-            title = title_el.get_text(strip=True) if title_el else title
-            ep_elements = soup.select(".eplister ul li")
+            title = (
+                title_el.get_text(" ", strip=True)
+                if title_el
+                else title
+            )
+
+            ep_elements = soup.select(
+                ".eplister ul li, "
+                ".episodelist ul li, "
+                "ul.clstyle li"
+            )
+
             url = series_url
+
+    print("EPISODE COUNT:", len(ep_elements))
 
     return url, title, ep_elements
 
@@ -530,8 +624,12 @@ def search():
 
     if query:
         search_url = f"{BASE_URL}/?s={query}"
-        r = requests.get(search_url, headers=HEADERS, timeout=30)
-        soup = BeautifulSoup(r.text, "html.parser")
+        try:
+            html = fetch_animexin_html(search_url)
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception as e:
+            print("SEARCH ANIMEXIN ERROR:", e)
+            return render_template("partials/results.html", results=[])
 
         for post in soup.select("article.bs"):
             a = post.select_one("a")
@@ -542,7 +640,18 @@ def search():
 
             title = title_el.get_text(strip=True) if title_el else "No Title"
             episode = f" {ep_el.get_text(strip=True)}" if ep_el else ""
-            img = img_el["src"] if img_el and img_el.has_attr("src") else ""
+            img = ""
+
+            if img_el:
+                img = (
+                    img_el.get("src")
+                    or img_el.get("data-src")
+                    or img_el.get("data-lazy-src")
+                    or img_el.get("data-original")
+                    or ""
+                )
+
+                img = urljoin(BASE_URL, img)
 
             results.append({
                 "title": (title + episode).strip(),
@@ -558,55 +667,105 @@ def search():
 # -------------------------------
 @app.route("/latest", methods=["GET"])
 def latest():
-    # /latest?page=1 → https://animexin.dev/
-    # /latest?page=2 → https://animexin.dev/page/2/
-    import re
     page = int((request.args.get("page") or 1))
     url = BASE_URL if page == 1 else f"{BASE_URL}/page/{page}/"
 
-    r = requests.get(url, headers=HEADERS, timeout=30)
-    soup = BeautifulSoup(r.text, "html.parser")
+    try:
+        html = fetch_animexin_html(url)
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as e:
+        print("LATEST ANIMEXIN ERROR:", e)
+        return render_template(
+            "partials/latest.html",
+            results=[],
+            next_page=None,
+            error=str(e)
+        )
 
     results = []
-    # Matches the exact structure you shared
-    for art in soup.select("div.listupd.normal div.excstf article.bs"):
+
+    cards = soup.select("div.listupd.normal div.excstf article.bs")
+
+    if not cards:
+        cards = soup.select("div.listupd article.bs")
+
+    if not cards:
+        cards = soup.select("div.excstf article.bs")
+
+    if not cards:
+        cards = soup.select("article.bs")
+
+    print("LATEST CARD COUNT:", len(cards))
+
+    for art in cards:
         a = art.select_one("a[href]")
         if not a:
             continue
-        link = a["href"]
+
+        link = urljoin(BASE_URL, a.get("href", ""))
 
         img_el = a.select_one("img")
         title_el = a.select_one(".eggtitle")
-        ep_el   = a.select_one(".eggepisode")
-        h2_el   = art.select_one(".tt h2")
+        ep_el = a.select_one(".eggepisode")
+        h2_el = art.select_one(".tt h2")
 
-        # Build a clean card title
         title = ""
+
         if title_el:
-            title = title_el.get_text(strip=True)
+            title = title_el.get_text(" ", strip=True)
+
         if ep_el:
-            title = (title + " " + ep_el.get_text(strip=True)).strip()
+            title = (
+                title + " " + ep_el.get_text(" ", strip=True)
+            ).strip()
+
         if not title and h2_el:
-            title = h2_el.get_text(strip=True)
+            title = h2_el.get_text(" ", strip=True)
 
-        img = img_el["src"] if img_el and img_el.has_attr("src") else ""
+        img = ""
 
-        results.append({
-            "title": title,
-            "img": img,
-            "post_token": b64e(link)
-        })
+        if img_el:
+            img = (
+                img_el.get("src")
+                or img_el.get("data-src")
+                or img_el.get("data-lazy-src")
+                or img_el.get("data-original")
+                or ""
+            )
 
-    # Detect "Next" page
+            img = urljoin(BASE_URL, img)
+
+        if link and title:
+            results.append({
+                "title": title,
+                "img": img,
+                "post_token": b64e(link)
+            })
+
     next_page = None
-    nxt = soup.select_one("div.hpage a.r[href]")
-    if nxt and nxt["href"]:
-        m = re.search(r"/page/(\d+)/", nxt["href"])
-        next_page = int(m.group(1)) if m else (page + 1)
+    nxt = soup.select_one(
+        "div.hpage a.r[href], "
+        "a.next.page-numbers[href], "
+        ".pagination a.next[href]"
+    )
 
-    return render_template("partials/latest.html",
-                           results=results,
-                           next_page=next_page)
+    if nxt and nxt.get("href"):
+        match = re.search(r"/page/(\d+)/", nxt["href"])
+
+        if match:
+            next_page = int(match.group(1))
+        else:
+            next_page = page + 1
+
+    print("LATEST RESULT COUNT:", len(results))
+    print("LATEST NEXT PAGE:", next_page)
+
+    return render_template(
+        "partials/latest.html",
+        results=results,
+        next_page=next_page,
+        error=None
+    )
 
 # -------------------------------
 # EPISODES LIST (FIXED: Targeted Redirect)
@@ -675,10 +834,22 @@ def get_servers():
     url = b64d(token)
     servers = []
 
-    r = requests.get(url, headers=HEADERS, timeout=30)
-    soup = BeautifulSoup(r.text, "html.parser")
+    try:
+        html = fetch_animexin_html(url)
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as e:
+        print("SERVER LIST ANIMEXIN ERROR:", e)
+        return render_template(
+            "partials/servers.html",
+            servers=[],
+            episode_token=token
+        )
 
-    for option in soup.select("select.mirror option"):
+    for option in soup.select(
+        "select.mirror option, "
+        "select[name='mirror'] option, "
+        ".mirror option"
+    ):
         label = option.get_text(strip=True)
         encoded = option.get("value", "")
         if encoded:
