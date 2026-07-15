@@ -1,32 +1,17 @@
 <h2>{{ title }}</h2>
-
 <p>Found {{ eps|length }} episodes available.</p>
 
-<!-- Select a specific episode -->
 <div style="margin-top:10px;">
   <input
     type="number"
     id="ep_number"
     placeholder="Enter episode number (1-{{ eps|length }})"
-    style="
-      padding:8px;
-      border-radius:6px;
-      border:1px solid #ccc;
-      width:220px;
-    "
+    style="padding:8px; border-radius:6px; border:1px solid #ccc; width:220px;"
   >
-
   <button
     type="button"
     onclick="processEpisodeByNumber()"
-    style="
-      padding:8px 15px;
-      background:#6c63ff;
-      color:white;
-      border:none;
-      border-radius:6px;
-      cursor:pointer;
-    "
+    style="padding:8px 15px; background:#6c63ff; color:white; border:none; border-radius:6px; cursor:pointer;"
     onmouseover="this.style.background='#574fd6'"
     onmouseout="this.style.background='#6c63ff'"
   >
@@ -34,25 +19,15 @@
   </button>
 </div>
 
-<!-- Episode list -->
 <div class="episode-list" style="margin-top:20px;">
   {% if eps %}
-
     {% for ep in eps %}
       <button
         type="button"
         class="ep-btn"
-
         data-num="{{ ep.num }}"
         data-token="{{ ep.episode_token }}"
-        data-title="{{ ep.anime_title|e }}"
-        data-full-name="{{ ep.button_name|e }}"
-
-        onclick="selectEpisode(
-          '{{ ep.episode_token }}',
-          this
-        )"
-
+        onclick='selectEpisode({{ ep.episode_token|tojson }})'
         style="
           display:inline-block;
           margin:5px;
@@ -64,14 +39,12 @@
           cursor:pointer;
           font-size:14px;
         "
-
         onmouseover="this.style.background='#574fd6'"
         onmouseout="this.style.background='#6c63ff'"
       >
-        {{ ep.button_name }}
+        {% if ep.button_name %}{{ ep.button_name }}{% else %}{{ title }} Ep-{{ ep.num }}{% endif %}
       </button>
     {% endfor %}
-
   {% else %}
     <p>No episodes found for this anime.</p>
   {% endif %}
@@ -87,16 +60,13 @@
       return;
     }
 
-    const button = document.querySelector(
-      `.ep-btn[data-num="${episodeNumber}"]`
-    );
+    const button = document.querySelector(`.ep-btn[data-num="${episodeNumber}"]`);
 
     if (!button) {
       alert("Invalid episode number");
       return;
     }
 
-    // Executes the same logic as manually clicking the episode button.
-    button.click();
+    selectEpisode(button.dataset.token);
   }
 </script>

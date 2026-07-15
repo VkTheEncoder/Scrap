@@ -447,6 +447,42 @@ def extract_tca_data(url):
     except Exception as e:
         print(f"DEBUG: Extraction Error: {e}")
         return "", "", ""
+
+
+def filename_context_from_episode_token(token: str):
+    """Return (anime title, episode number) from the encoded episode URL."""
+    try:
+        episode_url = b64d(token) if token else ""
+    except Exception:
+        return "Anime", ""
+
+    path = urlparse(episode_url).path.strip("/")
+    match = re.search(
+        r"^(?P<title>.+?)-episode-(?P<episode>\d+(?:\.\d+)?)\b",
+        path,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return "Anime", ""
+
+    title_slug = match.group("title")
+    episode_num = match.group("episode")
+    words = [word for word in re.split(r"[-_]+", title_slug) if word]
+
+    # Readable title from the URL slug without depending on browser state.
+    minor_words = {"a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"}
+    title_words = []
+    for index, word in enumerate(words):
+        lower = word.lower()
+        if index > 0 and lower in minor_words:
+            title_words.append(lower)
+        else:
+            title_words.append(lower.capitalize())
+
+    title = " ".join(title_words).strip() or "Anime"
+    return title, episode_num
+
 # -------------------------------
 # STREAM ROUTE (UPDATED)
 # -------------------------------
@@ -457,49 +493,20 @@ def stream():
     subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
     server_value = request.form.get("server", "").strip()
     
-    # 2. Filename context. The browser sends this through every step.
-    raw_title = (request.form.get("title") or "").strip()
-    raw_ep = (request.form.get("episode") or "").strip()
+    # 2. Build the filename only from the episode token.
+    # This keeps the original working button/request flow and does not depend
+    # on JavaScript globals, data attributes, or cached browser state.
+    token_title, token_episode = filename_context_from_episode_token(token)
 
-    # Server-side fallback: recover missing context from the episode URL.
-    # This prevents a cached/old JavaScript file from ever producing "Anime .srt".
-    try:
-        episode_url = b64d(token) if token else ""
-    except Exception:
-        episode_url = ""
+    safe_title = re.sub(r'[\/*?:"<>|]', "", token_title).strip() or "Anime"
+    safe_episode = re.sub(r'[\/*?:"<>|]', "", token_episode).strip()
 
-    if not raw_ep and episode_url:
-        ep_match = re.search(
-            r"-episode-(\d+(?:\.\d+)?)\b",
-            episode_url,
-            re.IGNORECASE
-        )
-        if ep_match:
-            raw_ep = ep_match.group(1)
+    if safe_episode:
+        custom_filename = f"{safe_title} Ep-{safe_episode}.srt"
+    else:
+        custom_filename = f"{safe_title}.srt"
 
-    if (not raw_title or raw_title.lower() == "anime") and episode_url:
-        slug = urlparse(episode_url).path.strip("/")
-        slug = re.sub(
-            r"-episode-\d+(?:\.\d+)?.*$",
-            "",
-            slug,
-            flags=re.IGNORECASE
-        )
-        fallback_title = re.sub(r"[-_]+", " ", slug).strip()
-        if fallback_title:
-            raw_title = fallback_title.title()
-
-    if not raw_title:
-        raw_title = "Anime"
-
-    safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title).strip() or "Anime"
-    safe_ep = re.sub(r'[\\/*?:"<>|]', "", raw_ep).strip()
-    if safe_ep and not safe_ep.lower().startswith("ep"):
-        safe_ep = f"Ep-{safe_ep}"
-
-    custom_filename = f"{safe_title} {safe_ep}.srt".strip()
-    print("STREAM TITLE RECEIVED:", repr(request.form.get("title")))
-    print("STREAM EPISODE RECEIVED:", repr(request.form.get("episode")))
+    print("FILENAME CONTEXT FROM TOKEN:", safe_title, "| EP:", safe_episode)
     print("FINAL SUBTITLE FILENAME:", custom_filename)
 
     # 3. Init Variables
@@ -1088,51 +1095,50 @@ def get_subtitles():
         vid_id = extract_dailymotion_video_id(payloads)
         if vid_id:
             meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
+
             dm_headers = HEADERS.copy()
             dm_headers["Referer"] = f"https://www.dailymotion.com/embed/video/{vid_id}"
-            try:
-                meta = requests.get(meta_url, headers=dm_headers, timeout=5).json()
 
-                if "subtitles" in meta and "data" in meta["subtitles"]:
-                    for lang_code, info in meta["subtitles"]["data"].items():
-                        label = info.get("label", lang_code)
-                        urls = info.get("urls", [])
-                        if urls:
-                            subs.append({
-                                "lang": lang_code,
-                                "name": label,
-                                "url": b64e(urls[0])
-                            })
+            meta = requests.get(meta_url, headers=dm_headers, timeout=20).json()
 
-                if not subs and "qualities" in meta:
-                    target_streams = []
-                    if "auto" in meta["qualities"]:
-                        target_streams.extend(meta["qualities"]["auto"])
-                    for quality, streams in meta["qualities"].items():
-                        if quality != "auto":
-                            target_streams.extend(streams)
+            if "subtitles" in meta and "data" in meta["subtitles"]:
+                for lang_code, info in meta["subtitles"]["data"].items():
+                    label = info.get("label", lang_code)
+                    urls = info.get("urls", [])
+                    if urls:
+                        subs.append({
+                            "lang": lang_code,
+                            "name": label,
+                            "url": b64e(urls[0])
+                        })
 
-                    for stream_data in target_streams:
-                        if stream_data.get("type") == "application/x-mpegURL":
-                            found = extract_subs_from_m3u8(stream_data["url"])
-                            if found:
-                                subs = found
-                                break
-            except Exception as dm_err:
-                print(f"DM metadata fetch non-fatal: {dm_err}")
+            if not subs and "qualities" in meta:
+                target_streams = []
+                if "auto" in meta["qualities"]:
+                    target_streams.extend(meta["qualities"]["auto"])
+                for quality, streams in meta["qualities"].items():
+                    if quality != "auto":
+                        target_streams.extend(streams)
+
+                for stream_data in target_streams:
+                    if stream_data.get("type") == "application/x-mpegURL":
+                        found = extract_subs_from_m3u8(stream_data["url"])
+                        if found:
+                            subs = found
+                            break
 
     except Exception as e:
         print(f"Error in get_subtitles: {e}")
 
-    print("SUBTITLE CONTEXT:", anime_title, "| EP:", episode_num, "| SUBS:", len(subs))
-    # Return JSON — JS will skip subtitle UI and go straight to /stream when subs==[]
-    return jsonify({
-        "subs": subs,
-        "ep_token": ep_token,
-        "server_value": server_value,
-        "anime_title": anime_title,
-        "episode_num": episode_num
-    })
+    print("SUBTITLE CONTEXT:", anime_title, "| EP:", episode_num)
+    return render_template(
+        "partials/subtitles.html",
+        subtitles=subs,
+        ep_token=ep_token,
+        server_value=server_value,
+        anime_title=anime_title,
+        episode_num=episode_num
+    )
 
 # -------------------------------
 # SUBTITLE EXTRACTOR
