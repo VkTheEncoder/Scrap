@@ -1,4 +1,3 @@
-
 import base64
 from flask import Flask, render_template, request, Response
 import requests
@@ -16,6 +15,20 @@ from io import BytesIO
 from flask import send_file, jsonify
 
 app = Flask(__name__)
+
+# Always revalidate frontend assets after a deployment.
+# This prevents an old main.js from surviving after the code changes.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+
+@app.after_request
+def disable_frontend_asset_cache(response):
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Custom Adapter to fix SSL Handshake Failures
 class CustomSSLAdapter(HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
@@ -174,6 +187,46 @@ def b64e(s: str) -> str:
 
 def b64d(s: str) -> str:
     return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8")
+
+
+def recover_episode_context(token: str, title: str = "", episode: str = ""):
+    """Recover title and episode from the signed episode token.
+
+    The episode URL is the server-side source of truth, so the workflow
+    remains correct even when a browser sends stale or missing fields.
+    """
+    clean_title = (title or "").strip()
+    clean_episode = (episode or "").strip()
+    episode_url = ""
+
+    try:
+        episode_url = b64d(token) if token else ""
+    except Exception as exc:
+        print("CONTEXT TOKEN DECODE ERROR:", repr(exc))
+
+    if episode_url and not clean_episode:
+        match = re.search(
+            r"-episode-(\d+(?:\.\d+)?)\b",
+            episode_url,
+            re.IGNORECASE
+        )
+        if match:
+            clean_episode = match.group(1)
+
+    if episode_url and (not clean_title or clean_title.lower() == "anime"):
+        slug = urlparse(episode_url).path.strip("/")
+        slug = re.sub(
+            r"-episode-\d+(?:\.\d+)?.*$",
+            "",
+            slug,
+            flags=re.IGNORECASE
+        )
+        recovered = re.sub(r"[-_]+", " ", slug).strip()
+        if recovered:
+            # Preserve natural lowercase words better than title-casing every word.
+            clean_title = recovered[:1].upper() + recovered[1:]
+
+    return clean_title or "Anime", clean_episode, episode_url
 
 
 def decode_server_payloads(server_value: str):
@@ -457,40 +510,12 @@ def stream():
     subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
     server_value = request.form.get("server", "").strip()
     
-    # 2. Filename context. The browser sends this through every step.
-    raw_title = (request.form.get("title") or "").strip()
-    raw_ep = (request.form.get("episode") or "").strip()
-
-    # Server-side fallback: recover missing context from the episode URL.
-    # This prevents a cached/old JavaScript file from ever producing "Anime .srt".
-    try:
-        episode_url = b64d(token) if token else ""
-    except Exception:
-        episode_url = ""
-
-    if not raw_ep and episode_url:
-        ep_match = re.search(
-            r"-episode-(\d+(?:\.\d+)?)\b",
-            episode_url,
-            re.IGNORECASE
-        )
-        if ep_match:
-            raw_ep = ep_match.group(1)
-
-    if (not raw_title or raw_title.lower() == "anime") and episode_url:
-        slug = urlparse(episode_url).path.strip("/")
-        slug = re.sub(
-            r"-episode-\d+(?:\.\d+)?.*$",
-            "",
-            slug,
-            flags=re.IGNORECASE
-        )
-        fallback_title = re.sub(r"[-_]+", " ", slug).strip()
-        if fallback_title:
-            raw_title = fallback_title.title()
-
-    if not raw_title:
-        raw_title = "Anime"
+    # 2. Filename context. Recover it from the episode token when needed.
+    raw_title, raw_ep, episode_url = recover_episode_context(
+        token,
+        request.form.get("title", ""),
+        request.form.get("episode", "")
+    )
 
     safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title).strip() or "Anime"
     safe_ep = re.sub(r'[\\/*?:"<>|]', "", raw_ep).strip()
@@ -1035,12 +1060,18 @@ def process_all():
 @app.route("/get_servers", methods=["POST"])
 def get_servers():
     token = request.form.get("episode_token", "").strip()
-    anime_title = (request.form.get("title") or "Anime").strip() or "Anime"
-    episode_num = (request.form.get("episode") or "").strip()
+    anime_title, episode_num, url = recover_episode_context(
+        token,
+        request.form.get("title", ""),
+        request.form.get("episode", "")
+    )
     servers = []
 
+    print("GET_SERVERS FORM:", dict(request.form))
+
     try:
-        url = b64d(token)
+        if not url:
+            raise ValueError("Invalid or missing episode token")
         html = fetch_animexin_html(url)
         soup = BeautifulSoup(html, "html.parser")
     except Exception as e:
@@ -1079,9 +1110,14 @@ def get_servers():
 def get_subtitles():
     ep_token = request.form.get("episode_token", "").strip()
     server_value = request.form.get("server", "").strip()
-    anime_title = (request.form.get("title") or "Anime").strip() or "Anime"
-    episode_num = (request.form.get("episode") or "").strip()
+    anime_title, episode_num, _ = recover_episode_context(
+        ep_token,
+        request.form.get("title", ""),
+        request.form.get("episode", "")
+    )
     subs = []
+
+    print("GET_SUBTITLES FORM KEYS:", sorted(request.form.keys()))
 
     try:
         payloads = decode_server_payloads(server_value)
