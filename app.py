@@ -16,6 +16,16 @@ from io import BytesIO
 from flask import send_file, jsonify
 
 app = Flask(__name__)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+@app.after_request
+def disable_static_cache(response):
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Custom Adapter to fix SSL Handshake Failures
 class CustomSSLAdapter(HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
@@ -99,6 +109,62 @@ def fetch_animexin_html(url: str) -> str:
         )
 
     return html
+
+def recover_episode_context(token: str, title: str = "", episode: str = "", soup=None):
+    """Recover anime title and episode number from the episode page/token.
+
+    This is the server-side source of truth, so filename context still works
+    even if an old browser JavaScript file sends no title/episode fields.
+    """
+    clean_title = (title or "").strip()
+    clean_episode = (episode or "").strip()
+
+    try:
+        episode_url = b64d(token) if token else ""
+    except Exception:
+        episode_url = ""
+
+    # Prefer the real page heading because it preserves the site's title casing.
+    if (not clean_title or clean_title.lower() == "anime") and soup is not None:
+        heading = soup.select_one("h1.entry-title")
+        raw_heading = heading.get_text(" ", strip=True) if heading else ""
+        if raw_heading:
+            recovered = re.sub(
+                r"\s+(?:episode|ep)\s*[-:]?\s*\d+(?:\.\d+)?\b.*$",
+                "",
+                raw_heading,
+                flags=re.IGNORECASE,
+            ).strip(" -")
+            if recovered:
+                clean_title = recovered
+
+    # Recover episode number from the canonical episode URL.
+    if not clean_episode and episode_url:
+        match = re.search(
+            r"-episode-(\d+(?:\.\d+)?)\b",
+            episode_url,
+            re.IGNORECASE,
+        )
+        if match:
+            clean_episode = match.group(1)
+
+    # URL fallback for title when the page heading is unavailable.
+    if (not clean_title or clean_title.lower() == "anime") and episode_url:
+        slug = urlparse(episode_url).path.strip("/")
+        slug = re.sub(
+            r"-episode-\d+(?:\.\d+)?.*$",
+            "",
+            slug,
+            flags=re.IGNORECASE,
+        )
+        fallback = re.sub(r"[-_]+", " ", slug).strip()
+        if fallback:
+            clean_title = fallback.title()
+
+    if not clean_title:
+        clean_title = "Anime"
+
+    return clean_title, clean_episode
 
 def format_time(seconds):
     if not seconds:
@@ -1032,9 +1098,10 @@ def process_all():
 @app.route("/get_servers", methods=["POST"])
 def get_servers():
     token = request.form.get("episode_token", "").strip()
-    anime_title = (request.form.get("title") or "Anime").strip() or "Anime"
-    episode_num = (request.form.get("episode") or "").strip()
+    posted_title = (request.form.get("title") or "").strip()
+    posted_episode = (request.form.get("episode") or "").strip()
     servers = []
+    soup = None
 
     try:
         url = b64d(token)
@@ -1042,6 +1109,9 @@ def get_servers():
         soup = BeautifulSoup(html, "html.parser")
     except Exception as e:
         print("SERVER LIST ANIMEXIN ERROR:", e)
+        anime_title, episode_num = recover_episode_context(
+            token, posted_title, posted_episode
+        )
         return render_template(
             "partials/servers.html",
             servers=[],
@@ -1049,6 +1119,11 @@ def get_servers():
             anime_title=anime_title,
             episode_num=episode_num
         )
+
+    # Never depend only on browser globals. Recover context from the page/token.
+    anime_title, episode_num = recover_episode_context(
+        token, posted_title, posted_episode, soup
+    )
 
     for option in soup.select(
         "select.mirror option, "
@@ -1060,6 +1135,7 @@ def get_servers():
         if encoded:
             servers.append({"label": label, "value": b64e(encoded)})
 
+    print("GET_SERVERS FORM:", request.form.to_dict(flat=True))
     print("SERVER CONTEXT:", anime_title, "| EP:", episode_num)
     return render_template(
         "partials/servers.html",
@@ -1076,8 +1152,11 @@ def get_servers():
 def get_subtitles():
     ep_token = request.form.get("episode_token", "").strip()
     server_value = request.form.get("server", "").strip()
-    anime_title = (request.form.get("title") or "Anime").strip() or "Anime"
-    episode_num = (request.form.get("episode") or "").strip()
+    posted_title = (request.form.get("title") or "").strip()
+    posted_episode = (request.form.get("episode") or "").strip()
+    anime_title, episode_num = recover_episode_context(
+        ep_token, posted_title, posted_episode
+    )
     subs = []
 
     try:
@@ -1120,6 +1199,7 @@ def get_subtitles():
     except Exception as e:
         print(f"Error in get_subtitles: {e}")
 
+    print("GET_SUBTITLES FORM:", request.form.to_dict(flat=True))
     print("SUBTITLE CONTEXT:", anime_title, "| EP:", episode_num)
     return render_template(
         "partials/subtitles.html",
