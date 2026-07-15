@@ -5,7 +5,7 @@ import requests
 from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
 import cloudscraper
 import jsbeautifier
 import ssl
@@ -457,14 +457,50 @@ def stream():
     subtitle_pref = (request.form.get("subtitle", "") or "").lower().strip()
     server_value = request.form.get("server", "").strip()
     
-    # 2. Filename Logic
-    raw_title = request.form.get("title", "Anime").strip()
-    raw_ep = request.form.get("episode", "").strip()
-    safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title)
-    safe_ep = re.sub(r'[\\/*?:"<>|]', "", raw_ep)
+    # 2. Filename context. The browser sends this through every step.
+    raw_title = (request.form.get("title") or "").strip()
+    raw_ep = (request.form.get("episode") or "").strip()
+
+    # Server-side fallback: recover missing context from the episode URL.
+    # This prevents a cached/old JavaScript file from ever producing "Anime .srt".
+    try:
+        episode_url = b64d(token) if token else ""
+    except Exception:
+        episode_url = ""
+
+    if not raw_ep and episode_url:
+        ep_match = re.search(
+            r"-episode-(\d+(?:\.\d+)?)\b",
+            episode_url,
+            re.IGNORECASE
+        )
+        if ep_match:
+            raw_ep = ep_match.group(1)
+
+    if (not raw_title or raw_title.lower() == "anime") and episode_url:
+        slug = urlparse(episode_url).path.strip("/")
+        slug = re.sub(
+            r"-episode-\d+(?:\.\d+)?.*$",
+            "",
+            slug,
+            flags=re.IGNORECASE
+        )
+        fallback_title = re.sub(r"[-_]+", " ", slug).strip()
+        if fallback_title:
+            raw_title = fallback_title.title()
+
+    if not raw_title:
+        raw_title = "Anime"
+
+    safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title).strip() or "Anime"
+    safe_ep = re.sub(r'[\\/*?:"<>|]', "", raw_ep).strip()
     if safe_ep and not safe_ep.lower().startswith("ep"):
         safe_ep = f"Ep-{safe_ep}"
+
     custom_filename = f"{safe_title} {safe_ep}.srt".strip()
+    print("STREAM TITLE RECEIVED:", repr(request.form.get("title")))
+    print("STREAM EPISODE RECEIVED:", repr(request.form.get("episode")))
+    print("FINAL SUBTITLE FILENAME:", custom_filename)
 
     # 3. Init Variables
     stream_link = ""
@@ -995,11 +1031,13 @@ def process_all():
 # -------------------------------
 @app.route("/get_servers", methods=["POST"])
 def get_servers():
-    token = request.form.get("episode_token", "")
-    url = b64d(token)
+    token = request.form.get("episode_token", "").strip()
+    anime_title = (request.form.get("title") or "Anime").strip() or "Anime"
+    episode_num = (request.form.get("episode") or "").strip()
     servers = []
 
     try:
+        url = b64d(token)
         html = fetch_animexin_html(url)
         soup = BeautifulSoup(html, "html.parser")
     except Exception as e:
@@ -1007,7 +1045,9 @@ def get_servers():
         return render_template(
             "partials/servers.html",
             servers=[],
-            episode_token=token
+            episode_token=token,
+            anime_title=anime_title,
+            episode_num=episode_num
         )
 
     for option in soup.select(
@@ -1020,15 +1060,24 @@ def get_servers():
         if encoded:
             servers.append({"label": label, "value": b64e(encoded)})
 
-    return render_template("partials/servers.html", servers=servers, episode_token=token)
+    print("SERVER CONTEXT:", anime_title, "| EP:", episode_num)
+    return render_template(
+        "partials/servers.html",
+        servers=servers,
+        episode_token=token,
+        anime_title=anime_title,
+        episode_num=episode_num
+    )
 
 # -------------------------------
 # GET SUBTITLES FOR SELECTED SERVER
 # -------------------------------
 @app.route("/get_subtitles", methods=["POST"])
 def get_subtitles():
-    ep_token = request.form.get("episode_token", "")
-    server_value = request.form.get("server", "")
+    ep_token = request.form.get("episode_token", "").strip()
+    server_value = request.form.get("server", "").strip()
+    anime_title = (request.form.get("title") or "Anime").strip() or "Anime"
+    episode_num = (request.form.get("episode") or "").strip()
     subs = []
 
     try:
@@ -1036,14 +1085,12 @@ def get_subtitles():
         vid_id = extract_dailymotion_video_id(payloads)
         if vid_id:
             meta_url = f"https://www.dailymotion.com/player/metadata/video/{vid_id}"
-            
-            # Use Referer (Your Script's Fix)
+
             dm_headers = HEADERS.copy()
             dm_headers["Referer"] = f"https://www.dailymotion.com/embed/video/{vid_id}"
-            
+
             meta = requests.get(meta_url, headers=dm_headers, timeout=20).json()
 
-            # 2. METHOD A: Direct Metadata (Your Script's Logic)
             if "subtitles" in meta and "data" in meta["subtitles"]:
                 for lang_code, info in meta["subtitles"]["data"].items():
                     label = info.get("label", lang_code)
@@ -1055,17 +1102,17 @@ def get_subtitles():
                             "url": b64e(urls[0])
                         })
 
-            # 3. METHOD B: HLS Fallback
             if not subs and "qualities" in meta:
                 target_streams = []
                 if "auto" in meta["qualities"]:
                     target_streams.extend(meta["qualities"]["auto"])
-                for q, streams in meta["qualities"].items():
-                    if q != "auto": target_streams.extend(streams)
+                for quality, streams in meta["qualities"].items():
+                    if quality != "auto":
+                        target_streams.extend(streams)
 
-                for s in target_streams:
-                    if s.get("type") == "application/x-mpegURL":
-                        found = extract_subs_from_m3u8(s["url"])
+                for stream_data in target_streams:
+                    if stream_data.get("type") == "application/x-mpegURL":
+                        found = extract_subs_from_m3u8(stream_data["url"])
                         if found:
                             subs = found
                             break
@@ -1073,7 +1120,15 @@ def get_subtitles():
     except Exception as e:
         print(f"Error in get_subtitles: {e}")
 
-    return render_template("partials/subtitles.html", subtitles=subs, ep_token=ep_token, server_value=server_value)
+    print("SUBTITLE CONTEXT:", anime_title, "| EP:", episode_num)
+    return render_template(
+        "partials/subtitles.html",
+        subtitles=subs,
+        ep_token=ep_token,
+        server_value=server_value,
+        anime_title=anime_title,
+        episode_num=episode_num
+    )
 
 # -------------------------------
 # SUBTITLE EXTRACTOR
@@ -1129,22 +1184,25 @@ def _fetch_text(scraper, url, headers, timeout=30):
 @app.route("/download_sub")
 def download_sub():
     token = request.args.get("url", "").strip()
-    fname = request.args.get("filename", "subtitle.srt")
+    fname = (request.args.get("filename") or "subtitle.srt").strip()
 
     if not token:
         return "No URL provided", 400
 
-    # === FIX: Sanitize Filename for HTTP Headers ===
-    # 1. Replace common non-ASCII characters with safe versions
-    fname = fname.replace("’", "'").replace("–", "-").replace("“", "").replace("”", "")
-    
-    # 2. Force convert to ASCII (removes any other hidden symbols like emojis or chinese chars)
-    # This prevents the "Invalid HTTP Header" crash
-    fname = fname.encode("ascii", "ignore").decode("ascii")
-    
-    # 3. Remove double quotes which break the header syntax
-    fname = fname.replace('"', '').strip()
-    # ===============================================
+    # Keep the real Unicode filename while removing only unsafe header/path characters.
+    fname = re.sub(r'[\r\n\x00-\x1f\x7f]', "", fname)
+    fname = re.sub(r'[\\/:*?"<>|]', "", fname).strip() or "subtitle.srt"
+    if not fname.lower().endswith((".srt", ".vtt")):
+        fname += ".srt"
+
+    ascii_fname = fname.encode("ascii", "ignore").decode("ascii").strip()
+    if not ascii_fname:
+        ascii_fname = "subtitle.srt"
+
+    content_disposition = (
+        f'attachment; filename="{ascii_fname}"; '
+        f"filename*=UTF-8''{quote(fname)}"
+    )
 
     try:
         url = b64d(token)
@@ -1196,14 +1254,14 @@ def download_sub():
             return Response(
                 vtt_text,
                 mimetype="application/octet-stream",
-                headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+                headers={"Content-Disposition": content_disposition}
             )
 
         # Return SRT with Safe Filename
         return Response(
             srt_text,
             mimetype="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+            headers={"Content-Disposition": content_disposition}
         )
 
     except Exception as e:
