@@ -1,19 +1,35 @@
 <h2>{{ title }}</h2>
+
 <p>Found {{ eps|length }} episodes available.</p>
 
-<!-- Select specific episode -->
+<!-- Select a specific episode -->
 <div style="margin-top:10px;">
-  <input 
-    type="number" 
-    id="ep_number" 
+  <input
+    type="number"
+    id="ep_number"
     placeholder="Enter episode number (1-{{ eps|length }})"
-    style="padding:8px; border-radius:6px; border:1px solid #ccc; width:220px;"
+    style="
+      padding:8px;
+      border-radius:6px;
+      border:1px solid #ccc;
+      width:220px;
+    "
   >
-  <button 
-    onclick="processEpisodeByNumber()" 
-    style="padding:8px 15px; background:#6c63ff; color:white; border:none; border-radius:6px; cursor:pointer;"
+
+  <button
+    type="button"
+    onclick="processEpisodeByNumber()"
+    style="
+      padding:8px 15px;
+      background:#6c63ff;
+      color:white;
+      border:none;
+      border-radius:6px;
+      cursor:pointer;
+    "
     onmouseover="this.style.background='#574fd6'"
-    onmouseout="this.style.background='#6c63ff'">
+    onmouseout="this.style.background='#6c63ff'"
+  >
     ▶ Process Selected
   </button>
 </div>
@@ -21,41 +37,66 @@
 <!-- Episode list -->
 <div class="episode-list" style="margin-top:20px;">
   {% if eps %}
+
     {% for ep in eps %}
       <button
+        type="button"
         class="ep-btn"
+
         data-num="{{ ep.num }}"
         data-token="{{ ep.episode_token }}"
-        data-title="{{ title|e }}"
-        onclick="selectEpisode('{{ ep.episode_token }}', this)"
+        data-title="{{ ep.anime_title|e }}"
+        data-full-name="{{ ep.button_name|e }}"
+
+        onclick="selectEpisode(
+          '{{ ep.episode_token }}',
+          this
+        )"
+
         style="
-            display:inline-block;
-            margin:5px;
-            padding:10px 15px;
-            background:#6c63ff;
-            color:white;
-            border:none;
-            border-radius:8px;
-            cursor:pointer;
-            font-size:14px;
+          display:inline-block;
+          margin:5px;
+          padding:10px 15px;
+          background:#6c63ff;
+          color:white;
+          border:none;
+          border-radius:8px;
+          cursor:pointer;
+          font-size:14px;
         "
+
         onmouseover="this.style.background='#574fd6'"
-        onmouseout="this.style.background='#6c63ff'">
-        Ep {{ ep.num }}{% if ep.title %} - {{ ep.title }}{% endif %}
+        onmouseout="this.style.background='#6c63ff'"
+      >
+        {{ ep.button_name }}
       </button>
     {% endfor %}
+
   {% else %}
     <p>No episodes found for this anime.</p>
   {% endif %}
 </div>
 
 <script>
-  // Find token by episode number and forward to selectEpisode()
   function processEpisodeByNumber() {
-    const n = document.getElementById('ep_number').value;
-    if (!n) { alert('Enter an episode number'); return; }
-    const btn = document.querySelector(`.ep-btn[data-num="${n}"]`);
-    if (!btn) { alert('Invalid episode number'); return; }
-    selectEpisode(btn.dataset.token, btn);
+    const input = document.getElementById("ep_number");
+    const episodeNumber = input.value.trim();
+
+    if (!episodeNumber) {
+      alert("Enter an episode number");
+      return;
+    }
+
+    const button = document.querySelector(
+      `.ep-btn[data-num="${episodeNumber}"]`
+    );
+
+    if (!button) {
+      alert("Invalid episode number");
+      return;
+    }
+
+    // Executes the same logic as manually clicking the episode button.
+    button.click();
   }
 </script>
