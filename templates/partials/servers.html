@@ -1,4 +1,15 @@
 <h3>Select Server</h3>
-{% for s in servers %}
-  <button onclick="selectServer('{{ episode_token }}', '{{ s.value }}')">{{ s.label }}</button>
-{% endfor %}
+{% if servers %}
+  {% for s in servers %}
+    <button
+      type="button"
+      data-episode-token="{{ episode_token|e }}"
+      data-server="{{ s.value|e }}"
+      data-title="{{ anime_title|e }}"
+      data-episode="{{ episode_num|e }}"
+      onclick="selectServer(this)"
+    >{{ s.label }}</button>
+  {% endfor %}
+{% else %}
+  <p>No servers found.</p>
+{% endif %}
