@@ -1,172 +1,162 @@
-console.log("main.js loaded ✅");
+console.log("main.js loaded: filename-context-v1");
 
-// Global variables to memorize the name
 let currentSource = "animexin";
-let globalAnimeTitle = "Anime"; 
+let globalAnimeTitle = "Anime";
 let globalEpisodeNum = "";
 
 $(document).ready(function () {
-  changeSource('animexin');
+  changeSource("animexin");
 
-  // ============================================================
-  // 1. CAPTURE DATA FROM THE EPISODE BUTTON (The logic you asked for)
-  // ============================================================
-  // We use the class ".ep-btn" because your HTML file uses it for every episode
-
-  // ===============================
-  // Search Form
-  // ===============================
   $("#searchForm").on("submit", function (e) {
     e.preventDefault();
     const query = $("#query").val().trim();
-    if (!query) { alert("Please enter anime name."); return; }
-    let searchRoute = (currentSource === "tca") ? "/search_tca" : "/search";
+    if (!query) {
+      alert("Please enter anime name.");
+      return;
+    }
 
-    $.post(searchRoute, { query: query }, function (data) {
+    const searchRoute = currentSource === "tca" ? "/search_tca" : "/search";
+    $.post(searchRoute, { query }, function (data) {
       $("#results").html(data).show();
       $("#episodes, #serverSelection, #subtitleSelection, #stream").hide();
       $("#latest").hide();
       $("html, body").animate({ scrollTop: $("#results").offset().top - 30 }, 600);
-    }).fail(function () { alert("Error searching."); });
+    }).fail(function () {
+      alert("Error searching.");
+    });
   });
 });
 
-// Switch Source
 function changeSource(source) {
-    currentSource = source;
-    // Reset Globals
-    globalAnimeTitle = "Anime";
-    globalEpisodeNum = "";
-    
-    if (source === 'animexin') {
-        $("#btn-animexin").removeClass("btn-outline-primary").addClass("btn-primary");
-        $("#btn-tca").removeClass("btn-primary").addClass("btn-outline-primary");
-    } else {
-        $("#btn-tca").removeClass("btn-outline-primary").addClass("btn-primary");
-        $("#btn-animexin").removeClass("btn-primary").addClass("btn-outline-primary");
-    }
-    $("#results, #episodes, #stream").hide();
-    $("#latest").show().html("<p class='text-center'>Loading latest releases...</p>");
-    loadLatest(1); 
+  currentSource = source;
+  globalAnimeTitle = "Anime";
+  globalEpisodeNum = "";
+
+  if (source === "animexin") {
+    $("#btn-animexin").removeClass("btn-outline-primary").addClass("btn-primary");
+    $("#btn-tca").removeClass("btn-primary").addClass("btn-outline-primary");
+  } else {
+    $("#btn-tca").removeClass("btn-outline-primary").addClass("btn-primary");
+    $("#btn-animexin").removeClass("btn-primary").addClass("btn-outline-primary");
+  }
+
+  $("#results, #episodes, #serverSelection, #subtitleSelection, #stream").hide();
+  $("#latest").show().html("<p class='text-center'>Loading latest releases...</p>");
+  loadLatest(1);
 }
 
 function loadLatest(page) {
-  let route = (currentSource === "tca") ? "/latest_tca" : "/latest";
-  $.get(route, { page: page || 1 }, function (html) { $("#latest").html(html).show(); });
+  const route = currentSource === "tca" ? "/latest_tca" : "/latest";
+  $.get(route, { page: page || 1 }, function (html) {
+    $("#latest").html(html).show();
+  });
 }
 
 function loadMoreLatest(btn) {
   const $btn = $(btn);
-  $.get("/latest", { page: $btn.data("next") }, function (html) {
+  const route = currentSource === "tca" ? "/latest_tca" : "/latest";
+  $.get(route, { page: $btn.data("next") }, function (html) {
     $("#latestList").append($(html).find("#latestList").html());
-    let next = $(html).find("#latestNextBtn").data("next");
-    next ? $btn.data("next", next).prop("disabled", false).text("Next →") : $btn.remove();
+    const next = $(html).find("#latestNextBtn").data("next");
+    if (next) {
+      $btn.data("next", next).prop("disabled", false).text("Next →");
+    } else {
+      $btn.remove();
+    }
   });
 }
 
-// ===============================
-// CORE FUNCTIONS
-// ===============================
-
 function selectAnime(id) {
-  $("#results").hide(); $("#latest").hide();
+  $("#results, #latest").hide();
   $.post("/episodes", { anime_id: id }, function (data) {
     $("#episodes").html(data).show();
     $("#serverSelection, #subtitleSelection, #stream").hide();
     $("html, body").animate({ scrollTop: $("#episodes").offset().top - 30 }, 600);
+  }).fail(function () {
+    alert("Error loading episodes.");
   });
 }
 
-// NOTE: This function is triggered by your HTML onclick="selectEpisode(...)"
-// We don't need to change it because our new listener above captures the data BEFORE this runs.
 function selectEpisode(epToken, buttonElement) {
   if (!buttonElement) {
-    console.error("Episode button was not provided.");
+    alert("Episode context is missing. Reload the page and try again.");
     return;
   }
 
-  // Read the exact values inserted by the Python backend.
-  globalAnimeTitle = (
-    buttonElement.dataset.title || "Anime"
-  ).trim();
+  const animeTitle = (buttonElement.dataset.title || "Anime").trim();
+  const episodeNum = (buttonElement.dataset.num || "").trim();
 
-  globalEpisodeNum = (
-    buttonElement.dataset.num || ""
-  ).trim();
+  globalAnimeTitle = animeTitle;
+  globalEpisodeNum = episodeNum;
 
-  const completeButtonName = (
-    buttonElement.dataset.fullName ||
-    buttonElement.textContent ||
-    ""
-  ).trim();
+  console.log("EPISODE CONTEXT:", { animeTitle, episodeNum, epToken });
 
-  console.log("================================");
-  console.log("Clicked button:", completeButtonName);
-  console.log("Anime title:", globalAnimeTitle);
-  console.log("Episode number:", globalEpisodeNum);
-  console.log("================================");
-
-  $.post(
-    "/get_servers",
-    {
-      episode_token: epToken
-    },
-    function (data) {
-      $("#serverSelection").html(data).show();
-      $("#subtitleSelection, #stream").hide();
-
-      $("html, body").animate({
-        scrollTop:
-          $("#serverSelection").offset().top - 20
-      }, 600);
-    }
-  ).fail(function () {
+  $.post("/get_servers", {
+    episode_token: epToken,
+    title: animeTitle,
+    episode: episodeNum
+  }, function (data) {
+    $("#serverSelection").html(data).show();
+    $("#subtitleSelection, #stream").hide();
+    $("html, body").animate({ scrollTop: $("#serverSelection").offset().top - 20 }, 600);
+  }).fail(function () {
     alert("Error loading servers.");
   });
 }
 
-function selectSubtitle(
-  episodeToken,
-  serverValue,
-  subtitleValue
-) {
-  const finalTitle = (
-    globalAnimeTitle || "Anime"
-  ).trim();
+// This function was missing from the uploaded repository.
+function selectServer(buttonElement) {
+  if (!buttonElement) {
+    alert("Server context is missing. Reload the page and try again.");
+    return;
+  }
 
-  const finalEpisode = (
-    globalEpisodeNum || ""
-  ).trim();
+  const data = buttonElement.dataset;
+  const context = {
+    episode_token: data.episodeToken || "",
+    server: data.server || "",
+    title: data.title || "Anime",
+    episode: data.episode || ""
+  };
 
-  console.log("========== STREAM REQUEST ==========");
-  console.log("Title being sent:", finalTitle);
-  console.log("Episode being sent:", finalEpisode);
-  console.log("====================================");
+  console.log("SERVER CONTEXT:", context);
 
-  $.post(
-    "/stream",
-    {
-      episode_token: episodeToken,
-      server: serverValue,
-      subtitle: subtitleValue,
+  $.post("/get_subtitles", context, function (html) {
+    $("#subtitleSelection").html(html).show();
+    $("#stream").hide();
+    $("html, body").animate({ scrollTop: $("#subtitleSelection").offset().top - 20 }, 600);
+  }).fail(function () {
+    alert("Error loading subtitles.");
+  });
+}
 
-      // These two values create the subtitle filename.
-      title: finalTitle,
-      episode: finalEpisode
-    },
-    function (data) {
-      $("#stream").html(data).show();
+function selectSubtitle(buttonElement) {
+  if (!buttonElement) {
+    alert("Subtitle context is missing. Reload the page and try again.");
+    return;
+  }
 
-      $("html, body").animate({
-        scrollTop: $("#stream").offset().top - 20
-      }, 600);
-    }
-  ).fail(function () {
+  const data = buttonElement.dataset;
+  const context = {
+    episode_token: data.episodeToken || "",
+    server: data.server || "",
+    subtitle: data.subtitle || "",
+    title: data.title || "Anime",
+    episode: data.episode || ""
+  };
+
+  console.log("STREAM CONTEXT:", context);
+
+  $.post("/stream", context, function (html) {
+    $("#stream").html(html).show();
+    $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
+  }).fail(function () {
     alert("Error loading stream.");
   });
 }
-function processAllEpisodes(anime_id) {
-  $.post("/process_all", { anime_id: anime_id }, function (data) {
+
+function processAllEpisodes(animeId) {
+  $.post("/process_all", { anime_id: animeId }, function (data) {
     $("#stream").html(data).show();
     $("#results, #episodes, #serverSelection, #subtitleSelection").hide();
     $("html, body").animate({ scrollTop: $("#stream").offset().top - 20 }, 600);
