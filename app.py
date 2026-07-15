@@ -915,7 +915,14 @@ def episodes():
 
             episodes.append({
                 "num": num_text,
-                "title": ep_title_text,
+
+                # Complete anime name received from the backend
+                "anime_title": title,
+
+                # Button text:
+                # Walking the Way all alone Ep-16
+                "button_name": f"{title} Ep-{num_text}",
+
                 "episode_token": b64e(href)
             })
 
