@@ -15,8 +15,8 @@ def extract_seekplayer_data(url: str):
     """
     try:
         # Extract the video ID
-        # URLs can be /v/ID or /e/ID
-        match = re.search(r'/[ve]/([^/?&]+)', url)
+        # URLs can be /v/ID, /e/ID, or #ID
+        match = re.search(r'(?:/[ve]/|#)([^/?&]+)', url)
         if not match:
             return None, [], ""
             
