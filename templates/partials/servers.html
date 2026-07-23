@@ -1,0 +1,14 @@
+<h3>Select Server</h3>
+
+{% if servers %}
+  {% for s in servers %}
+    <button
+      type="button"
+      onclick='selectServer({{ episode_token|tojson }}, {{ s.value|tojson }})'
+    >
+      {{ s.label }}
+    </button>
+  {% endfor %}
+{% else %}
+  <p>No servers found.</p>
+{% endif %}

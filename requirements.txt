@@ -1,0 +1,9 @@
+flask
+requests
+beautifulsoup4
+gunicorn
+m3u8
+cloudscraper
+jsbeautifier
+yt-dlp
+curl-cffi

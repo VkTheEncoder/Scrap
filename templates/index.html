@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Anime Scraper</title>
+  <style>
+    body { font-family: Arial; background:#f6f7fb; padding:20px; }
+    .wrap { max-width:1000px; margin:0 auto; background:#fff; border-radius:12px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
+    h2 { margin-top:0; }
+    input, select, button { padding:8px 12px; border-radius:8px; border:1px solid #ccc; margin:5px 0; }
+    button { background:#6c63ff; color:white; cursor:pointer; border:none; }
+    button:hover { background:#574fd6; }
+    .results-list { display:flex; flex-wrap:wrap; gap:15px; margin-top:15px; }
+    .result-item { width:180px; cursor:pointer; text-align:center; }
+    .result-item img { width:100%; border-radius:8px; }
+    .result-item p { margin:6px 0 0; font-size:14px; }
+    .episode-list { margin-top:10px; }
+    .episode-list button { margin:3px; }
+  </style>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}?v=20260715-restored-working-flow-v1"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div style="text-align:center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee;">
+      <h3>Select Source</h3>
+      <button id="btn-animexin" onclick="changeSource('animexin')" style="margin-right: 10px; font-weight: bold;">
+        Animexin
+      </button>
+      
+      <button id="btn-tca" onclick="changeSource('tca')" style="background: #e0e0e0; color: #333; font-weight: normal;">
+        TopChinese
+      </button>
+    </div>
+    <!-- SEARCH -->
+    <h2>Search Anime</h2>
+    <form id="searchForm">
+      <input type="text" id="query" name="query" placeholder="Enter anime name or URL" size="50">
+      <button type="submit">SEARCH</button>
+    </form>
+    <!-- LATEST RELEASE -->
+    <section id="latest" style="margin-bottom:24px;"></section>
+    <!-- Dynamic Sections -->
+    <section id="results" style="display:none"></section>
+    <section id="episodes" style="display:none"></section>
+    <section id="serverSelection" style="display:none"></section>
+    <section id="subtitleSelection" style="display:none"></section>
+    <section id="stream" style="display:none"></section>
+
+
+  </div>
+</body>
+</html>

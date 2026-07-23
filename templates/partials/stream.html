@@ -1,0 +1,39 @@
+{% if link %}
+  <div style="margin-bottom: 15px;">
+    <p><strong>Stream Link:</strong></p>
+    <a href="{{ link }}" target="_blank" style="color:#0077cc; word-break: break-all;">{{ link }}</a>
+  </div>
+{% else %}
+  <p>No stream link found.</p>
+{% endif %}
+
+{% if duration %}
+  <p><strong>Duration:</strong> {{ duration }}</p>
+{% endif %}
+
+{% if sub %}
+  <div style="margin-top:15px;">
+    <h3 style="margin-bottom:8px;">Subtitle File</h3>
+    <a 
+      href="{{ url_for('download_sub', url=sub, filename=filename) }}" 
+      class="btn btn-success"
+      target="_blank"
+      style="
+        display:inline-block;
+        background:#6c63ff;
+        color:#fff;
+        padding:10px 18px;
+        text-decoration:none;
+        border-radius:8px;
+        font-size:15px;
+        font-weight:500;
+        transition:all 0.2s ease;
+      "
+      onmouseover="this.style.background='#574fd6'"
+      onmouseout="this.style.background='#6c63ff'">
+      ⬇️ Download Subtitle (SRT)
+    </a>
+  </div>
+{% else %}
+  <p>No subtitle available for the selected language.</p>
+{% endif %}
