@@ -1553,6 +1553,13 @@ def get_subtitles():
                             subs = found
                             break
         if not subs:
+            seekplayer_url = extract_matching_url(payloads, "seekplayer.vip")
+            if seekplayer_url:
+                _, sp_subs, _ = extract_seekplayer_data(seekplayer_url)
+                if sp_subs:
+                    subs = sp_subs
+
+        if not subs:
             streamwish_url = extract_streamwish_embed_url(payloads)
             if streamwish_url:
                 _, subs, _ = extract_streamwish_api_data(streamwish_url)
