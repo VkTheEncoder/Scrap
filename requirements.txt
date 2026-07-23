@@ -7,3 +7,4 @@ cloudscraper
 jsbeautifier
 yt-dlp
 curl-cffi
+pycryptodome
