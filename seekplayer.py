@@ -62,16 +62,41 @@ def extract_seekplayer_data(url: str):
         # The first 16 bytes are garbled due to an unknown/missing IV. 
         # But the JSON structure starts at byte 16 and is always valid JSON!
         valid_part = text[16:]
-        fixed_json_str = '{"video":"https' + valid_part
         
-        try:
-            data = json.loads(fixed_json_str)
-        except Exception as e:
-            print("Seekplayer JSON Parse Error:", e)
-            return None, [], ""
-            
+        prefixes = [
+            '{"video":"https',
+            '{"video":"http',
+            '{"video":"',
+            '{"dummy":"',
+            '{',
+            '{"',
+            '{"dummy":'
+        ]
+        
+        data = {}
+        for pref in prefixes:
+            try:
+                data = json.loads(pref + valid_part)
+                break
+            except Exception:
+                pass
+                
+        if not data:
+            match = re.search(r'[,{]\s*"[a-zA-Z0-9_]+"\s*:', valid_part)
+            if match:
+                clean_json = "{" + valid_part[match.start()+1:]
+                try:
+                    data = json.loads(clean_json)
+                except Exception as e:
+                    print("Seekplayer JSON Parse Error:", e)
+
         # Extract stream link
         stream_link = data.get("hlsVideoTiktok") or data.get("cfNative") or data.get("cf") or data.get("video")
+        
+        if not stream_link:
+            m = re.search(r'(?:https?:)?//[^"]+\.(?:m3u8|mp4)[^"]*', text)
+            if m:
+                stream_link = m.group(0)
         
         if stream_link and stream_link.startswith("/"):
             stream_link = f"https://{domain}{stream_link}"
