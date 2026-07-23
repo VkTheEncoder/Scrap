@@ -482,6 +482,88 @@ def extract_streamwish_public_data(embed_url: str):
 
     return final_url or embed_url, subtitles, duration
 
+
+def extract_streamwish_api_data(embed_url: str):
+    """
+    Call the StreamWish /api/source/{code} JSON endpoint — the same request
+    their own player JS makes — to get the real HLS stream URL and subtitle
+    tracks without needing to execute JavaScript or pass a bot challenge.
+
+    Falls back to the page-scraper (extract_streamwish_public_data) if the
+    API call fails or returns no usable data.
+    """
+    try:
+        parsed = urlparse(embed_url)
+        # embed path is /e/<code> — grab the last non-empty segment
+        path_parts = [p for p in parsed.path.split("/") if p]
+        if not path_parts:
+            raise ValueError("Cannot determine file code from embed URL")
+        file_code = path_parts[-1]
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        api_url = f"{base}/api/source/{file_code}"
+
+        headers = {
+            "User-Agent": ANIMEXIN_HEADERS["User-Agent"],
+            "Referer": embed_url,
+            "Origin": base,
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+        }
+
+        resp = requests.post(
+            api_url,
+            data={"r": BASE_URL, "d": parsed.netloc},
+            headers=headers,
+            timeout=20,
+        )
+
+        print("STREAMWISH API STATUS:", resp.status_code, api_url)
+        data = resp.json()
+        print("STREAMWISH API RESPONSE:", str(data)[:500])
+
+        if not data.get("success"):
+            raise RuntimeError(f"StreamWish API success=false: {data}")
+
+        # --- Stream link (first HLS source) ---
+        stream_link = ""
+        for src in data.get("data", {}).get("sources", []) or []:
+            if src.get("file"):
+                stream_link = src["file"]
+                break
+
+        # --- Subtitle tracks ---
+        subs = []
+        for track in data.get("data", {}).get("tracks", []) or []:
+            kind = (track.get("kind") or "").lower()
+            # Skip chapter/thumbnail tracks
+            if kind and kind not in {"captions", "subtitles"}:
+                continue
+            file_url = track.get("file") or track.get("src") or ""
+            if not file_url:
+                continue
+            label = track.get("label") or track.get("language") or "unknown"
+            lang  = track.get("language") or track.get("srclang") or label or "unknown"
+            subs.append({
+                "lang": lang,
+                "name": label,
+                "url": encode_resource_token(file_url, embed_url),
+            })
+
+        print("STREAMWISH API stream_link:", stream_link)
+        print("STREAMWISH API subs count:", len(subs))
+
+        # If the API gave us nothing useful, let the page scraper try.
+        if not stream_link and not subs:
+            raise RuntimeError("API returned no sources and no tracks")
+
+        return stream_link, subs, ""
+
+    except Exception as e:
+        print("STREAMWISH API ERROR, falling back to page scraper:", e)
+        return extract_streamwish_public_data(embed_url)
+
+
 def decode_server_payloads(server_value: str):
     payloads = []
     if not server_value:
@@ -917,7 +999,7 @@ def stream():
             streamwish_url = extract_streamwish_embed_url(server_payloads)
             if streamwish_url:
                 is_animexin = True
-                sw_link, sw_subs, sw_duration = extract_streamwish_public_data(streamwish_url)
+                sw_link, sw_subs, sw_duration = extract_streamwish_api_data(streamwish_url)
                 stream_link = sw_link or streamwish_url
 
                 if sw_duration:
@@ -1460,7 +1542,7 @@ def get_subtitles():
         if not subs:
             streamwish_url = extract_streamwish_embed_url(payloads)
             if streamwish_url:
-                _, subs, _ = extract_streamwish_public_data(streamwish_url)
+                _, subs, _ = extract_streamwish_api_data(streamwish_url)
 
     except Exception as e:
         print(f"Error in get_subtitles: {e}")
