@@ -1,16 +1,15 @@
-
 import base64
 
 import html as html_lib
 import json
-from flask import Flask, render_template, request, Response
+import cloudscraper
 import requests
+import re
+from flask import Flask, render_template, request, Response
 from curl_cffi import requests as curl_requests
 from bs4 import BeautifulSoup
-import re
 from urllib.parse import urljoin, urlparse, quote, unquote
-from urllib.parse import urljoin, urlparse, quote
-import cloudscraper
+from seekplayer import extract_seekplayer_data
 import jsbeautifier
 import ssl
 from requests.adapters import HTTPAdapter
@@ -993,8 +992,22 @@ def stream():
     except Exception as e:
         print("Animexin Error:", e)
 
+    # === 1.5. SEEKPLAYER LOGIC ===
+    if not is_animexin and not dm_id and not rumble_payload:
+        seekplayer_url = extract_matching_url(server_payloads, "seekplayer.vip")
+        if seekplayer_url:
+            is_animexin = True
+            sp_link, sp_subs, sp_dur = extract_seekplayer_data(seekplayer_url)
+            if sp_link:
+                stream_link = sp_link
+                if sp_subs:
+                    subs = sp_subs
+                    subs_map = {s["lang"].lower(): s["url"] for s in subs}
+                if sp_dur:
+                    duration_str = sp_dur
+
     # === 2. ANIMEXIN LOGIC (StreamWish public embed + caption tracks) ===
-    if not dm_id and not rumble_payload:
+    if not is_animexin and not dm_id and not rumble_payload:
         try:
             streamwish_url = extract_streamwish_embed_url(server_payloads)
             if streamwish_url:
