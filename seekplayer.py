@@ -107,6 +107,8 @@ def extract_seekplayer_data(url: str):
         if isinstance(subtitle_data, dict):
             for lang, url in subtitle_data.items():
                 if url:
+                    if url.startswith("/"):
+                        url = f"https://{domain}{url}"
                     subs.append({
                         "lang": lang,
                         "name": lang,
@@ -117,6 +119,8 @@ def extract_seekplayer_data(url: str):
                 url = sub.get("url") or sub.get("src")
                 lang = sub.get("lang") or sub.get("name") or "Unknown"
                 if url:
+                    if url.startswith("/"):
+                        url = f"https://{domain}{url}"
                     subs.append({
                         "lang": lang,
                         "name": lang,
