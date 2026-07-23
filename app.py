@@ -180,7 +180,6 @@ def b64d(s: str) -> str:
     return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8")
 
 
-<<<<<<< HEAD
 def encode_resource_token(url: str, referer: str = "") -> str:
     """
     Encode an external resource URL while optionally keeping the Referer that
@@ -483,9 +482,6 @@ def extract_streamwish_public_data(embed_url: str):
 
     return final_url or embed_url, subtitles, duration
 
-
-=======
->>>>>>> 2605a147bdf2cb61aca80e284ebb778f71376f84
 def decode_server_payloads(server_value: str):
     payloads = []
     if not server_value:
@@ -830,10 +826,6 @@ def stream():
     server_payloads = decode_server_payloads(server_value)
     decoded_server = server_payloads[0] if server_payloads else ""
     has_dailymotion_payload = any("dailymotion" in payload.lower() for payload in server_payloads)
-<<<<<<< HEAD
-    rumble_payload = ""
-=======
->>>>>>> 2605a147bdf2cb61aca80e284ebb778f71376f84
 
     # ==========================================
     # === 1. RUMBLE LOGIC (COMPLETELY SEPARATE) ===
@@ -919,7 +911,6 @@ def stream():
     except Exception as e:
         print("Animexin Error:", e)
 
-<<<<<<< HEAD
     # === 2. ANIMEXIN LOGIC (StreamWish public embed + caption tracks) ===
     if not dm_id and not rumble_payload:
         try:
@@ -946,9 +937,6 @@ def stream():
                 stream_link = fallback_streamwish
 
     # === 3. TOP CHINESE ANIME LOGIC (VidHide) ===
-=======
-    # === 2. TOP CHINESE ANIME LOGIC (VidHide) ===
->>>>>>> 2605a147bdf2cb61aca80e284ebb778f71376f84
     if not is_animexin:
         try:
             tca_url = ""
@@ -1469,15 +1457,11 @@ def get_subtitles():
                         if found:
                             subs = found
                             break
-
-<<<<<<< HEAD
         if not subs:
             streamwish_url = extract_streamwish_embed_url(payloads)
             if streamwish_url:
                 _, subs, _ = extract_streamwish_public_data(streamwish_url)
 
-=======
->>>>>>> 2605a147bdf2cb61aca80e284ebb778f71376f84
     except Exception as e:
         print(f"Error in get_subtitles: {e}")
 
@@ -1566,11 +1550,7 @@ def download_sub():
     )
 
     try:
-<<<<<<< HEAD
         url, resource_referer = decode_resource_token(token)
-=======
-        url = b64d(token)
->>>>>>> 2605a147bdf2cb61aca80e284ebb778f71376f84
     except Exception:
         return "Invalid token", 400
 
@@ -1589,15 +1569,13 @@ def download_sub():
             headers["Origin"] = "https://www.dailymotion.com"
             headers["Referer"] = "https://www.dailymotion.com/"
 
-<<<<<<< HEAD
         if resource_referer:
             headers["Referer"] = resource_referer
             parsed_referer = urlparse(resource_referer)
             if parsed_referer.scheme and parsed_referer.netloc:
                 headers["Origin"] = f"{parsed_referer.scheme}://{parsed_referer.netloc}"
 
-=======
->>>>>>> 2605a147bdf2cb61aca80e284ebb778f71376f84
+
         def fetch_real_sub(target_url, depth=0):
             if depth > 3: return "" 
             resp = session.get(target_url, headers=headers, timeout=20, verify=False)
@@ -1617,7 +1595,6 @@ def download_sub():
         if not vtt_text or len(vtt_text) < 20:
             return "No valid subtitle content found.", 502
 
-<<<<<<< HEAD
         # A few hosts expose a ready-made SRT track. Preserve it as-is rather
         # than forcing it through the VTT converter.
         if (
@@ -1631,8 +1608,6 @@ def download_sub():
                 headers={"Content-Disposition": content_disposition}
             )
 
-=======
->>>>>>> 2605a147bdf2cb61aca80e284ebb778f71376f84
         # Convert to SRT (using your fixed vtt_to_srt function)
         srt_text = vtt_to_srt(vtt_text)
         
@@ -1659,9 +1634,6 @@ def download_sub():
         return f"Error: {e}", 500
 
 
-# -------------------------------
-# VTT -> SRT CONVERTER (ROBUST FIX)
-# -------------------------------
 # -------------------------------
 # VTT -> SRT CONVERTER (FINAL FIX)
 # -------------------------------
