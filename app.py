@@ -124,11 +124,7 @@ def extract_rumble_data(embed_url):
     ydl_opts = {
         'skip_download': True, 
         'quiet': True,
-        'impersonate': False, # Anti-bot error roknene ke liye
-        
-        # UNCOMMENT THE LINE BELOW if the video is Premium/Private and you are running on Local PC Chrome:
-        # Note: Render cloud par Chrome cookies nahi hoti, isliye wahan isko comment hi rehne dena.
-        # 'cookiesfrombrowser': ('chrome',), 
+        'format': 'best'
     }
     
     subs = []
