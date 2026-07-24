@@ -134,30 +134,30 @@ def extract_rumble_data(embed_url):
             
         if video_id:
             api_url = f'https://rumble.com/embedJS/u3/?request=video&v={video_id}'
-                r2 = requests.get(api_url, headers=headers, timeout=20)
+            r2 = requests.get(api_url, headers=headers, timeout=20)
+            
+            if r2.status_code == 200:
+                api_data = r2.json()
                 
-                if r2.status_code == 200:
-                    api_data = r2.json()
+                # Extract duration
+                duration = api_data.get('duration')
+                if duration:
+                    duration_str = format_time(duration)
                     
-                    # Extract duration
-                    duration = api_data.get('duration')
-                    if duration:
-                        duration_str = format_time(duration)
-                        
-                    # Extract subtitles
-                    cc_data = api_data.get('cc', {})
-                    if isinstance(cc_data, dict):
-                        for lang_code, sub_info in cc_data.items():
-                            sub_url = sub_info.get('path')
-                            if sub_url:
-                                subs.append({
-                                    "lang": lang_code,
-                                    "name": f"{lang_code} (Manual Subtitle)",
-                                    "url": b64e(sub_url)
-                                })
-                else:
-                    print(f"Rumble API returned status {r2.status_code}")
-                    
+                # Extract subtitles
+                cc_data = api_data.get('cc', {})
+                if isinstance(cc_data, dict):
+                    for lang_code, sub_info in cc_data.items():
+                        sub_url = sub_info.get('path')
+                        if sub_url:
+                            subs.append({
+                                "lang": lang_code,
+                                "name": f"{lang_code} (Manual Subtitle)",
+                                "url": b64e(sub_url)
+                            })
+            else:
+                print(f"Rumble API returned status {r2.status_code}")
+                
     except Exception as e:
         print(f"Rumble Direct Sub Error: {e}")
         
