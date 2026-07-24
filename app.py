@@ -4,6 +4,7 @@ import html as html_lib
 import json
 import cloudscraper
 import requests
+from curl_cffi import requests as c_requests
 import re
 from flask import Flask, render_template, request, Response
 from curl_cffi import requests as curl_requests
