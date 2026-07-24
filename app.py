@@ -126,19 +126,14 @@ def extract_rumble_data(embed_url):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         print(f"Fetching Rumble API for: {embed_url}")
         
-        r = requests.get(embed_url, headers=headers, timeout=20)
-        
-        # Extract the video ID from the Rumble player initialization
-        match = re.search(r'Rumble\(\"play\",\s*(\{.*?\})\);', r.text)
+        # Extract the video ID directly from the URL to bypass Cloudflare HTML blocks
+        video_id = None
+        match = re.search(r'rumble\.com/(?:embed/)?([a-zA-Z0-9_-]+)', embed_url)
         if match:
-            data = json.loads(match.group(1))
+            video_id = match.group(1)
             
-            # Video ID can be a direct string or a dict {'id': '...'}
-            vid_obj = data.get('video')
-            video_id = vid_obj.get('id') if isinstance(vid_obj, dict) else vid_obj
-            
-            if video_id:
-                api_url = f'https://rumble.com/embedJS/u3/?request=video&v={video_id}'
+        if video_id:
+            api_url = f'https://rumble.com/embedJS/u3/?request=video&v={video_id}'
                 r2 = requests.get(api_url, headers=headers, timeout=20)
                 
                 if r2.status_code == 200:
