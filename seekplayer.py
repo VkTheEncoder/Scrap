@@ -8,6 +8,55 @@ def b64e(text: str) -> str:
     import base64
     return base64.b64encode(text.encode("utf-8")).decode("utf-8")
 
+def get_m3u8_duration(m3u8_url):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://animexinfansub.seekplayer.vip/'
+        }
+        r = requests.get(m3u8_url, headers=headers, timeout=10)
+        text = r.text
+        
+        # If it's a master playlist, find the first resolution playlist and fetch it
+        if '#EXT-X-STREAM-INF' in text:
+            # Find the first URL that is not a comment
+            lines = text.split('\n')
+            for i, line in enumerate(lines):
+                if line.startswith('#EXT-X-STREAM-INF'):
+                    # The next non-empty line should be the URL
+                    for j in range(i+1, len(lines)):
+                        if lines[j].strip() and not lines[j].startswith('#'):
+                            sub_url = lines[j].strip()
+                            # Resolve relative URL
+                            if not sub_url.startswith('http'):
+                                if sub_url.startswith('/'):
+                                    from urllib.parse import urlparse
+                                    parsed = urlparse(m3u8_url)
+                                    sub_url = f"{parsed.scheme}://{parsed.netloc}{sub_url}"
+                                else:
+                                    sub_url = m3u8_url.rsplit('/', 1)[0] + '/' + sub_url
+                            return get_m3u8_duration(sub_url)
+        
+        # If it's a media playlist, sum the #EXTINF durations
+        durations = re.findall(r'#EXTINF:([\d\.]+)', text)
+        if durations:
+            total_seconds = sum(float(d) for d in durations)
+            
+            # Format time HH:MM:SS or MM:SS
+            hours = int(total_seconds // 3600)
+            minutes = int((total_seconds % 3600) // 60)
+            seconds = int(total_seconds % 60)
+            
+            if hours > 0:
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                return f"{minutes:02d}:{seconds:02d}"
+                
+        return ""
+    except Exception as e:
+        print("Error getting duration:", e)
+        return ""
+
 def extract_seekplayer_data(url: str):
     """
     Extracts the direct stream link and subtitles from seekplayer.vip URLs.
@@ -127,7 +176,11 @@ def extract_seekplayer_data(url: str):
                         "url": b64e(url)
                     })
                     
-        return stream_link, subs, ""
+        duration = ""
+        if stream_link and stream_link.endswith(".m3u8"):
+            duration = get_m3u8_duration(stream_link)
+            
+        return stream_link, subs, duration
         
     except Exception as e:
         print("Seekplayer extract error:", e)
