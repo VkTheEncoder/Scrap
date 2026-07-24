@@ -120,57 +120,51 @@ def format_time(seconds):
 # RUMBLE SUBTITLE EXTRACTOR (UPDATED LOGIC)
 # -------------------------------
 def extract_rumble_data(embed_url):
-    # 1. Configuration to extract info without downloading the video
-    ydl_opts = {
-        'skip_download': True, 
-        'quiet': True,
-        'format': 'best'
-    }
-    
     subs = []
     duration_str = ""
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Fetching subtitle info for: {embed_url}\nPlease wait...")
-            info = ydl.extract_info(embed_url, download=False)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        print(f"Fetching Rumble API for: {embed_url}")
+        
+        r = requests.get(embed_url, headers=headers, timeout=20)
+        
+        # Extract the video ID from the Rumble player initialization
+        match = re.search(r'Rumble\(\"play\",\s*(\{.*?\})\);', r.text)
+        if match:
+            data = json.loads(match.group(1))
             
-            # Extract duration
-            duration = info.get('duration')
-            if duration:
-                duration_str = format_time(duration)
+            # Video ID can be a direct string or a dict {'id': '...'}
+            vid_obj = data.get('video')
+            video_id = vid_obj.get('id') if isinstance(vid_obj, dict) else vid_obj
+            
+            if video_id:
+                api_url = f'https://rumble.com/embedJS/u3/?request=video&v={video_id}'
+                r2 = requests.get(api_url, headers=headers, timeout=20)
                 
-            # Extract manual and automatic subtitles from the video info
-            subtitles = info.get('subtitles', {})
-            auto_captions = info.get('automatic_captions', {})
-            
-            all_subs = {}
-            
-            # Manual Subtitles ko pehle priority
-            for lang, tracks in subtitles.items():
-                for t in tracks:
-                    if t.get('ext') in ['vtt', 'srt']:
-                        all_subs[lang] = {'url': t.get('url'), 'type': 'Manual Subtitle'}
-                        break
-            
-            # Auto-Generated ko baad mein check karenge (Agar manual nahi mila)
-            for lang, tracks in auto_captions.items():
-                if lang not in all_subs: 
-                    for t in tracks:
-                        if t.get('ext') in ['vtt', 'srt']:
-                            all_subs[lang] = {'url': t.get('url'), 'type': 'Auto-Generated'}
-                            break
-            
-            # Frontend (HTML) dropdown ke liye format ready karna
-            for lang, data in all_subs.items():
-                subs.append({
-                    "lang": lang, 
-                    "name": f"{lang} ({data['type']})", # Example: "en (Manual Subtitle)"
-                    "url": b64e(data['url']) # URL ko base64 encode kiya taaki tumhare existing downloader me fit ho jaye
-                })
-                
+                if r2.status_code == 200:
+                    api_data = r2.json()
+                    
+                    # Extract duration
+                    duration = api_data.get('duration')
+                    if duration:
+                        duration_str = format_time(duration)
+                        
+                    # Extract subtitles
+                    cc_data = api_data.get('cc', {})
+                    if isinstance(cc_data, dict):
+                        for lang_code, sub_info in cc_data.items():
+                            sub_url = sub_info.get('path')
+                            if sub_url:
+                                subs.append({
+                                    "lang": lang_code,
+                                    "name": f"{lang_code} (Manual Subtitle)",
+                                    "url": b64e(sub_url)
+                                })
+                else:
+                    print(f"Rumble API returned status {r2.status_code}")
+                    
     except Exception as e:
-        print(f"Rumble Sub Error: {e}")
-        print("If this is a Premium video, make sure to uncomment the 'cookiesfrombrowser' line locally.")
+        print(f"Rumble Direct Sub Error: {e}")
         
     return subs, duration_str
 
