@@ -134,7 +134,8 @@ def extract_rumble_data(embed_url):
             
         if video_id:
             api_url = f'https://rumble.com/embedJS/u3/?request=video&v={video_id}'
-            r2 = requests.get(api_url, headers=headers, timeout=20)
+            # Use curl_cffi (c_requests) to bypass Cloudflare 403 on Render IPs
+            r2 = c_requests.get(api_url, headers=headers, timeout=20, impersonate="chrome")
             
             if r2.status_code == 200:
                 api_data = r2.json()
