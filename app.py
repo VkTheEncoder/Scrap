@@ -119,7 +119,7 @@ def format_time(seconds):
 # -------------------------------
 # RUMBLE SUBTITLE EXTRACTOR (UPDATED LOGIC)
 # -------------------------------
-def extract_rumble_subs(embed_url):
+def extract_rumble_data(embed_url):
     # 1. Configuration to extract info without downloading the video
     ydl_opts = {
         'skip_download': True, 
@@ -132,11 +132,17 @@ def extract_rumble_subs(embed_url):
     }
     
     subs = []
+    duration_str = ""
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             print(f"Fetching subtitle info for: {embed_url}\nPlease wait...")
             info = ydl.extract_info(embed_url, download=False)
             
+            # Extract duration
+            duration = info.get('duration')
+            if duration:
+                duration_str = format_time(duration)
+                
             # Extract manual and automatic subtitles from the video info
             subtitles = info.get('subtitles', {})
             auto_captions = info.get('automatic_captions', {})
@@ -170,7 +176,7 @@ def extract_rumble_subs(embed_url):
         print(f"Rumble Sub Error: {e}")
         print("If this is a Premium video, make sure to uncomment the 'cookiesfrombrowser' line locally.")
         
-    return subs
+    return subs, duration_str
 
 def b64e(s: str) -> str:
     return base64.urlsafe_b64encode(s.encode("utf-8")).decode("utf-8")
@@ -923,8 +929,10 @@ def stream():
                 rumble_payload = "https:" + rumble_payload
 
             stream_link = rumble_payload
-            subs = extract_rumble_subs(rumble_payload)
+            subs, rumble_duration = extract_rumble_data(rumble_payload)
             subs_map = {s["lang"].lower(): s["url"] for s in subs}
+            if rumble_duration:
+                duration_str = rumble_duration
     except Exception as e:
         print("Rumble Error in /stream:", e)
 
@@ -1563,6 +1571,19 @@ def get_subtitles():
             streamwish_url = extract_streamwish_embed_url(payloads)
             if streamwish_url:
                 _, subs, _ = extract_streamwish_api_data(streamwish_url)
+
+        if not subs:
+            decoded_server = payloads[0] if payloads else ""
+            rumble_payload = extract_matching_url(payloads, "rumble.com")
+            rumble_match = re.search(r'src=["\']([^"\']*rumble\.com/embed/[^"\']+)["\']', decoded_server, re.IGNORECASE)
+            if rumble_match:
+                rumble_payload = rumble_match.group(1)
+            if rumble_payload:
+                if rumble_payload.startswith("//"):
+                    rumble_payload = "https:" + rumble_payload
+                r_subs, _ = extract_rumble_data(rumble_payload)
+                if r_subs:
+                    subs = r_subs
 
     except Exception as e:
         print(f"Error in get_subtitles: {e}")
